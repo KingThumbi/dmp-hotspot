@@ -1,0 +1,85 @@
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify, current_app
+from .extensions import db
+from .models import Transaction, Subscription, Package
+from .mikrotik import ensure_hotspot_user
+
+mpesa_bp = Blueprint("mpesa", __name__)
+
+@mpesa_bp.post("/mpesa/callback")
+def mpesa_callback():
+    """
+    Safaricom STK callback.
+    Must be idempotent: if callback repeats, don’t double-activate or double-extend wrongly.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    stk = (payload.get("Body", {}).get("stkCallback", {}) or {})
+    checkout_id = stk.get("CheckoutRequestID")
+    result_code = str(stk.get("ResultCode", ""))
+    result_desc = stk.get("ResultDesc", "")
+
+    if not checkout_id:
+        return jsonify({"ok": True})
+
+    tx = Transaction.query.filter_by(checkout_request_id=checkout_id).first()
+    if not tx:
+        return jsonify({"ok": True})
+
+    # Store callback raw
+    tx.raw_callback_json = str(payload)
+    tx.result_code = result_code
+    tx.result_desc = result_desc
+
+    if result_code != "0":
+        tx.status = "failed"
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    # Success: extract receipt if present
+    items = stk.get("CallbackMetadata", {}).get("Item", []) if stk.get("CallbackMetadata") else []
+    receipt = None
+    for it in items:
+        if it.get("Name") == "MpesaReceiptNumber":
+            receipt = it.get("Value")
+            break
+    if receipt:
+        # If we've already processed this receipt, stay idempotent
+        existing_receipt = Transaction.query.filter_by(mpesa_receipt=receipt).first()
+        if existing_receipt and existing_receipt.id != tx.id:
+            return jsonify({"ok": True})
+
+        tx.mpesa_receipt = receipt
+
+    # Mark tx success
+    if tx.status == "success":
+        # already processed
+        return jsonify({"ok": True})
+
+    tx.status = "success"
+    db.session.flush()
+
+    # Find the pending subscription for this tx
+    sub = Subscription.query.filter_by(last_tx_id=tx.id).first()
+    if not sub:
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    pkg = Package.query.get(sub.package_id)
+    now = datetime.utcnow()
+    expires = now + timedelta(minutes=pkg.duration_minutes)
+
+    # Activate MikroTik
+    ensure_hotspot_user(
+        current_app,
+        username=sub.router_username,
+        profile=pkg.mikrotik_profile,
+        expires_at=expires,
+    )
+
+    # Update subscription
+    sub.status = "active"
+    sub.starts_at = now
+    sub.expires_at = expires
+
+    db.session.commit()
+    return jsonify({"ok": True})

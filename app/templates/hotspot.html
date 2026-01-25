@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Dmpolin Connect Hotspot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: "#000080",
+            gold: "#ffd700"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-100 p-6">
+    <div class="mb-6">
+      <div class="text-navy text-2xl font-extrabold">Dmpolin Connect</div>
+      <div class="text-slate-600 mt-1">Pay with M-Pesa to get instant hotspot access.</div>
+    </div>
+
+    <form id="payForm" class="space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-1">Phone Number</label>
+        <input name="phone" placeholder="07XXXXXXXX" class="w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gold"/>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-1">Choose Package</label>
+        <select name="package" class="w-full rounded-xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gold">
+          {% for p in packages %}
+            <option value="{{ p.code }}">{{ p.name }} — KES {{ p.price_kes }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit"
+        class="w-full rounded-xl bg-navy text-white font-bold py-3 shadow-md hover:shadow-lg transition">
+        Pay via M-Pesa
+      </button>
+
+      <div id="msg" class="text-sm text-slate-700"></div>
+      <div id="statusBox" class="hidden mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm"></div>
+    </form>
+
+    <div class="mt-6 text-xs text-slate-500">
+      Need help? Contact Dmpolin Connect support.
+    </div>
+  </div>
+
+<script>
+const form = document.getElementById("payForm");
+const msg = document.getElementById("msg");
+const statusBox = document.getElementById("statusBox");
+
+let pollTimer = null;
+
+function showStatus(text) {
+  statusBox.classList.remove("hidden");
+  statusBox.innerText = text;
+}
+
+async function poll(phone) {
+  if (pollTimer) clearInterval(pollTimer);
+  let tries = 0;
+
+  pollTimer = setInterval(async () => {
+    tries++;
+    const r = await fetch(`/status?phone=${encodeURIComponent(phone)}`);
+    const j = await r.json();
+
+    if (j.status === "active") {
+      showStatus(`✅ Payment confirmed. Access active until: ${j.expires_at}`);
+      clearInterval(pollTimer);
+      return;
+    }
+    if (j.status === "pending") {
+      showStatus("⏳ Waiting for payment confirmation...");
+    } else if (j.status === "expired") {
+      showStatus("⚠️ Subscription expired.");
+      clearInterval(pollTimer);
+    } else {
+      showStatus("⏳ Checking status...");
+    }
+
+    if (tries >= 30) { // ~90s
+      showStatus("If you paid and still see this, contact support.");
+      clearInterval(pollTimer);
+    }
+  }, 3000);
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  msg.innerText = "";
+  statusBox.classList.add("hidden");
+
+  const fd = new FormData(form);
+  const phone = fd.get("phone");
+
+  msg.innerText = "📲 Sending M-Pesa prompt...";
+  const r = await fetch("/pay", { method: "POST", body: fd });
+  const j = await r.json();
+
+  if (!j.ok) {
+    msg.innerText = "❌ " + (j.error || "Payment request failed");
+    return;
+  }
+
+  msg.innerText = "✅ Check your phone and enter M-Pesa PIN.";
+  poll(j.phone);
+});
+</script>
+</body>
+</html>

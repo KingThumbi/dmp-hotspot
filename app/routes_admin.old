@@ -1,0 +1,11 @@
+from flask import Blueprint, jsonify
+from .models import Transaction, Subscription
+
+admin = Blueprint("admin", __name__, url_prefix="/admin")
+
+@admin.get("/summary")
+def summary():
+    active = Subscription.query.filter_by(status="active").count()
+    pending = Subscription.query.filter_by(status="pending").count()
+    today_success = Transaction.query.filter_by(status="success").count()
+    return jsonify({"active": active, "pending": pending, "success_total": today_success})

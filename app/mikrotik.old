@@ -1,0 +1,75 @@
+from datetime import datetime
+from routeros_api import RouterOsApiPool
+
+def _conn(app):
+    return RouterOsApiPool(
+        host=app.config["MIKROTIK_HOST"],
+        username=app.config["MIKROTIK_USER"],
+        password=app.config["MIKROTIK_PASS"],
+        port=app.config["MIKROTIK_API_PORT"],
+        plaintext_login=True,
+    )
+
+def ensure_hotspot_user(app, username: str, profile: str, expires_at: datetime):
+    """
+    Create or update /ip/hotspot/user with profile and enabled state.
+    Stores expiry in comment for easy ops visibility.
+    """
+    pool = _conn(app)
+    try:
+        api = pool.get_api()
+        users = api.get_resource("/ip/hotspot/user")
+
+        comment = f"exp={expires_at.isoformat()} pkg={profile}"
+        existing = users.get(name=username)
+
+        if existing:
+            # update and enable
+            users.set(
+                id=existing[".id"],
+                profile=profile,
+                disabled="no",
+                comment=comment,
+            )
+        else:
+            # create. password can be blank or random; we won't ask user for it.
+            users.add(
+                name=username,
+                password="",
+                profile=profile,
+                disabled="no",
+                comment=comment,
+            )
+    finally:
+        pool.disconnect()
+
+def disable_hotspot_user(app, username: str):
+    pool = _conn(app)
+    try:
+        api = pool.get_api()
+        users = api.get_resource("/ip/hotspot/user")
+        existing = users.get(name=username)
+        if existing:
+            users.set(id=existing[".id"], disabled="yes")
+    finally:
+        pool.disconnect()
+
+def bind_user_mac(app, username: str, mac: str):
+    """
+    Optional: lock a user to a specific MAC (requires binding table).
+    Uses /ip/hotspot/ip-binding, making it harder to hop devices.
+    """
+    pool = _conn(app)
+    try:
+        api = pool.get_api()
+        bindings = api.get_resource("/ip/hotspot/ip-binding")
+
+        # Check if binding exists
+        existing = bindings.get(mac_address=mac)
+        if existing:
+            # ensure it's allowed
+            bindings.set(id=existing[".id"], type="bypassed", comment=f"user={username}")
+        else:
+            bindings.add(mac_address=mac, type="bypassed", comment=f"user={username}")
+    finally:
+        pool.disconnect()

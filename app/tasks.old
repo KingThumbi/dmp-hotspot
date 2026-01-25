@@ -1,0 +1,36 @@
+from datetime import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from .extensions import db
+from .models import Subscription
+from .mikrotik import disable_hotspot_user
+
+_scheduler = None
+
+def expire_job(app):
+    with app.app_context():
+        now = datetime.utcnow()
+        expired = Subscription.query.filter(
+            Subscription.status == "active",
+            Subscription.expires_at.isnot(None),
+            Subscription.expires_at < now
+        ).all()
+
+        for sub in expired:
+            try:
+                disable_hotspot_user(app, sub.router_username)
+            except Exception:
+                # Keep DB state consistent even if router call fails; you can re-run job.
+                pass
+            sub.status = "expired"
+
+        if expired:
+            db.session.commit()
+
+def start_scheduler(app):
+    global _scheduler
+    if _scheduler:
+        return
+
+    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler.add_job(lambda: expire_job(app), "interval", minutes=1, id="expire_job")
+    _scheduler.start()
