@@ -7,7 +7,6 @@ Create Date: 2026-01-29 19:41:09.735006
 from alembic import op
 import sqlalchemy as sa
 
-# revision identifiers, used by Alembic.
 revision = "c23d9c559661"
 down_revision = "9fc22be0664d"
 branch_labels = None
@@ -18,12 +17,12 @@ def upgrade():
     op.create_table(
         "admin_audit_logs",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("admin_user_id", sa.Integer(), nullable=False, index=True),
-        sa.Column("action", sa.String(length=60), nullable=False, index=True),
+        sa.Column("admin_user_id", sa.Integer(), nullable=False),      # removed index=True
+        sa.Column("action", sa.String(length=60), nullable=False),     # removed index=True
         sa.Column("ip_address", sa.String(length=64), nullable=True),
         sa.Column("user_agent", sa.String(length=255), nullable=True),
         sa.Column("meta_json", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, index=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),        # removed index=True
         sa.ForeignKeyConstraint(["admin_user_id"], ["admin_users.id"]),
     )
 
