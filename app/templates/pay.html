@@ -29,6 +29,59 @@
         height:auto;
       }
     }
+
+    /* =========================================================
+       Mobile Sticky Pay Bar (Option 1)
+       ========================================================= */
+
+    /* Make room so bottom content isn't hidden behind sticky bar */
+    .page { padding-bottom: 96px; }
+
+    .stickyPaybar{
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      display: none; /* shown only on mobile */
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      padding: 12px 14px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(2,6,23,.10);
+      z-index: 999;
+    }
+
+    .stickyPaybar__info{
+      min-width: 0;
+      flex: 1;
+    }
+
+    .stickyPaybar__label{
+      font-size: 12px;
+      font-weight: 900;
+      color: rgba(2,6,23,.60);
+      line-height: 1.1;
+    }
+
+    .stickyPaybar__value{
+      font-weight: 900;
+      color: var(--navy);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 58vw;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+
+    @media (max-width: 720px){
+      .stickyPaybar{ display:flex; }
+      /* Hide the top pay button on phones (keep phone input) */
+      #payBtn{ display:none; }
+    }
   </style>
 
   <div class="card">
@@ -68,6 +121,7 @@
         You will receive a payment prompt on this number.
       </div>
 
+      <!-- Desktop Pay button (hidden on mobile via CSS) -->
       <button
         id="payBtn"
         type="button"
@@ -169,6 +223,33 @@
     </div>
   </div>
 
+  <!-- ✅ Mobile sticky Pay bar (Option 1) -->
+  <div class="stickyPaybar" role="region" aria-label="Payment actions">
+    <div class="stickyPaybar__info">
+      <div class="stickyPaybar__label">Selected package</div>
+      <div id="stickySelected" class="stickyPaybar__value">None</div>
+    </div>
+
+    <button
+      id="stickyPayBtn"
+      type="button"
+      onclick="submitPay()"
+      style="
+        min-width:140px;
+        height:44px;
+        border-radius:14px;
+        font-weight:900;
+        background:#e5e7eb;
+        color:#111827;
+        box-shadow:none;
+        border:1px solid rgba(2,6,23,.10);
+      "
+      disabled
+    >
+      Pay
+    </button>
+  </div>
+
   <script>
     let selectedPackageCode = null;
     let selectedPackageName = null;
@@ -176,18 +257,32 @@
 
     function setPayButtonReady(isReady){
       const btn = document.getElementById("payBtn");
+      const stickyBtn = document.getElementById("stickyPayBtn");
+
+      function applyReadyStyles(b){
+        if(!b) return;
+        b.disabled = false;
+        b.style.background = "var(--navy)";
+        b.style.color = "#fff";
+        b.style.border = "1px solid rgba(255,255,255,.18)";
+        b.style.boxShadow = "0 10px 18px rgba(0,0,128,.25)";
+      }
+
+      function applyDisabledStyles(b){
+        if(!b) return;
+        b.disabled = true;
+        b.style.background = "#e5e7eb";
+        b.style.color = "#111827";
+        b.style.border = "1px solid rgba(2,6,23,.10)";
+        b.style.boxShadow = "none";
+      }
+
       if(isReady){
-        btn.disabled = false;
-        btn.style.background = "var(--navy)";
-        btn.style.color = "#fff";
-        btn.style.border = "1px solid rgba(255,255,255,.18)";
-        btn.style.boxShadow = "0 10px 18px rgba(0,0,128,.25)";
+        applyReadyStyles(btn);
+        applyReadyStyles(stickyBtn);
       }else{
-        btn.disabled = true;
-        btn.style.background = "#e5e7eb";
-        btn.style.color = "#111827";
-        btn.style.border = "1px solid rgba(2,6,23,.10)";
-        btn.style.boxShadow = "none";
+        applyDisabledStyles(btn);
+        applyDisabledStyles(stickyBtn);
       }
     }
 
@@ -257,6 +352,11 @@
         : selectedPackageName;
 
       document.getElementById("selectedLabel").textContent = label;
+
+      // Update sticky bar selection label
+      const stickySelected = document.getElementById("stickySelected");
+      if (stickySelected) stickySelected.textContent = label;
+
       setPayButtonReady(true);
 
       setResult("Selected", `Tap <b>Pay</b> to continue for <b>${label}</b>.`, null, "info");
@@ -305,6 +405,9 @@
       }
     }
 
+    // Initial state
     setPayButtonReady(false);
+    const stickySelected = document.getElementById("stickySelected");
+    if (stickySelected) stickySelected.textContent = "None";
   </script>
 {% endblock %}
