@@ -1,0 +1,118 @@
+{% extends "admin/base.html" %}
+{% block title %}Transactions{% endblock %}
+
+{% block content %}
+
+  <!-- Revenue Totals -->
+  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Revenue (Today)</div>
+      <div style="font-size:22px; font-weight:800;">KES {{ totals.today if totals else 0 }}</div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Revenue (This Week)</div>
+      <div style="font-size:22px; font-weight:800;">KES {{ totals.week if totals else 0 }}</div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Revenue (This Month)</div>
+      <div style="font-size:22px; font-weight:800;">KES {{ totals.month if totals else 0 }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <h2 style="margin:0;">Transactions</h2>
+
+      <form method="GET" class="row" style="gap:8px; flex-wrap:wrap;">
+        <select name="status">
+          <option value="">All</option>
+          <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
+          <option value="success" {% if status=='success' %}selected{% endif %}>success</option>
+          <option value="failed" {% if status=='failed' %}selected{% endif %}>failed</option>
+        </select>
+        <button type="submit">Filter</button>
+      </form>
+    </div>
+
+    <table style="margin-top:10px;">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>Phone</th>
+          <th>Package</th>
+          <th>Amount</th>
+          <th>CheckoutID</th>
+          <th>Receipt</th>
+          <th>Result</th>
+          <th>Created (Nairobi)</th>
+          <th></th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for item in items %}
+          {% set t = item.t %}
+
+          {% set status_bg = "#eef2ff" %}
+          {% set status_fg = "#3730a3" %}
+          {% if t.status == "success" %}
+            {% set status_bg = "#ecfdf5" %}
+            {% set status_fg = "#065f46" %}
+          {% elif t.status == "failed" %}
+            {% set status_bg = "#fef2f2" %}
+            {% set status_fg = "#991b1b" %}
+          {% elif t.status == "pending" %}
+            {% set status_bg = "#fffbeb" %}
+            {% set status_fg = "#92400e" %}
+          {% endif %}
+
+          <tr>
+            <td class="muted">{{ t.id }}</td>
+
+            <td>
+              <span class="pill" style="background:{{ status_bg }}; color:{{ status_fg }};">
+                {{ t.status }}
+              </span>
+            </td>
+
+            <td>{{ t.customer.phone if t.customer else "-" }}</td>
+            <td class="muted">{{ t.package.code if t.package else "-" }}</td>
+
+            <td>{{ t.amount }}</td>
+
+            <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis;">
+              {{ t.checkout_request_id or "-" }}
+            </td>
+
+            <td>{{ t.mpesa_receipt or "-" }}</td>
+
+            <td class="muted" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              {{ t.result_desc or "-" }}
+            </td>
+
+            <!-- ✅ Nairobi time -->
+            <td class="muted">
+              {{ item.created_local.strftime("%Y-%m-%d %H:%M:%S") if item.created_local else "-" }}
+            </td>
+
+            <td style="white-space:nowrap;">
+              {% if t.raw_callback_json %}
+                <a href="{{ url_for('admin.transaction_callback_json', tx_id=t.id, status=status) }}">View JSON</a>
+              {% else %}
+                <span class="muted">No JSON</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10" class="muted">No transactions found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+{% endblock %}

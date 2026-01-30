@@ -1,0 +1,82 @@
+{% extends "admin/base.html" %}
+{% block title %}Customer{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <h2 style="margin:0;">{{ customer.phone }}</h2>
+        <div class="muted">Customer since {{ customer.created_at }}</div>
+      </div>
+      <a href="{{ url_for('admin.customers') }}" style="text-decoration:none;">← Back</a>
+    </div>
+  </div>
+
+  <div style="height:12px;"></div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Subscriptions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>Package</th>
+          <th>User</th>
+          <th>Starts</th>
+          <th>Expires</th>
+          <th>Last Tx</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in subs %}
+          <tr>
+            <td class="muted">{{ s.id }}</td>
+            <td><span class="pill">{{ s.status }}</span></td>
+            <td>{{ s.package.code if s.package else s.package_id }}</td>
+            <td>{{ s.router_username }}</td>
+            <td class="muted">{{ s.starts_at or "-" }}</td>
+            <td class="muted">{{ s.expires_at or "-" }}</td>
+            <td class="muted">{{ s.last_tx_id or "-" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="muted">No subscriptions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="height:12px;"></div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Transactions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>Amount</th>
+          <th>Package</th>
+          <th>Checkout</th>
+          <th>Receipt</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in txs %}
+          <tr>
+            <td class="muted">{{ t.id }}</td>
+            <td><span class="pill">{{ t.status }}</span></td>
+            <td>{{ t.amount }}</td>
+            <td>{{ t.package.code if t.package else t.package_id }}</td>
+            <td class="muted">{{ t.checkout_request_id or "-" }}</td>
+            <td>{{ t.mpesa_receipt or "-" }}</td>
+            <td class="muted">{{ t.created_at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="muted">No transactions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

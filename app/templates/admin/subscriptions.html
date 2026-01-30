@@ -1,0 +1,84 @@
+<!-- app/templates/admin/subscriptions.html -->
+{% extends "admin/base.html" %}
+{% block title %}Subscriptions{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h2 style="margin:0;">Subscriptions</h2>
+
+      <form method="GET" class="row">
+        <input name="q" value="{{ q }}" placeholder="Search username/phone..." />
+
+        <select name="pkg">
+          <option value="">All packages</option>
+          {% for code in pkg_codes %}
+            <option value="{{ code }}" {% if pkg==code %}selected{% endif %}>{{ code }}</option>
+          {% endfor %}
+        </select>
+
+        <select name="status">
+          <option value="">All status</option>
+          <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
+          <option value="active" {% if status=='active' %}selected{% endif %}>active</option>
+          <option value="expired" {% if status=='expired' %}selected{% endif %}>expired</option>
+        </select>
+
+        <button type="submit">Filter</button>
+        <a href="{{ url_for('admin.subscriptions') }}" style="text-decoration:none;">Reset</a>
+      </form>
+    </div>
+
+    <table style="margin-top:10px;">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Package</th>
+          <th>Status</th>
+          <th>Expires</th>
+          <th>Remaining</th>
+          <th>Last Tx</th>
+          <th></th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for it in items %}
+          {% set s = it.s %}
+          <tr style="{% if it.is_expired %}background:#fff5f5;{% endif %}">
+            <td class="muted">{{ s.id }}</td>
+            <td><strong>{{ s.router_username }}</strong></td>
+            <td>{{ s.package.code if s.package else s.package_id }}</td>
+            <td><span class="pill">{{ s.status }}</span></td>
+            <td class="muted">{{ s.expires_at or "-" }}</td>
+
+            <td>
+              {% if it.remaining == "Expired" %}
+                <span class="pill" style="background:#fee2e2;">Expired</span>
+              {% else %}
+                <span class="pill">{{ it.remaining }}</span>
+              {% endif %}
+            </td>
+
+            <td class="muted">{{ s.last_tx_id or "-" }}</td>
+
+            <td style="text-align:right;">
+              {% if s.status == "active" and s.expires_at %}
+                <form method="POST" action="{{ url_for('admin.subscription_enable', sub_id=s.id) }}" style="display:inline;">
+                  <button type="submit">Enable on Router</button>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="muted">No subscriptions found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "admin/base.html" %}
+{% block title %}Customers{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h2 style="margin:0;">Customers</h2>
+
+      <form method="GET" class="row">
+        <input name="q" value="{{ q }}" placeholder="Search phone..." />
+        <button type="submit">Search</button>
+      </form>
+    </div>
+
+    <table style="margin-top:10px;">
+      <thead>
+        <tr>
+          <th>Phone</th>
+          <th>Customer Since</th>
+          <th>Latest Subscription</th>
+          <th>Package</th>
+          <th>Expires</th>
+          <th>Last Tx</th>
+          <th>Receipt</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c, s, t in rows %}
+          <tr>
+            <td><strong>{{ c.phone }}</strong></td>
+            <td class="muted">{{ c.created_at }}</td>
+
+            <td>
+              {% if s %}
+                <span class="pill">{{ s.status }}</span>
+              {% else %}
+                <span class="muted">-</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if s and s.package %}
+                {{ s.package.code }}
+              {% elif s %}
+                {{ s.package_id }}
+              {% else %}
+                <span class="muted">-</span>
+              {% endif %}
+            </td>
+
+            <td class="muted">
+              {% if s %}
+                {{ s.expires_at or "-" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+            <td>
+              {% if t %}
+                <span class="pill">{{ t.status }}</span>
+              {% else %}
+                <span class="muted">-</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {{ t.mpesa_receipt if t and t.mpesa_receipt else "-" }}
+            </td>
+
+            <td style="text-align:right;">
+              <a href="{{ url_for('admin.customer_detail', customer_id=c.id) }}" style="text-decoration:none;">
+                View →
+              </a>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="muted">No customers found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

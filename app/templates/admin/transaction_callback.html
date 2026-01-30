@@ -1,0 +1,38 @@
+{% extends "admin/base.html" %}
+{% block title %}Callback JSON{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h2 style="margin:0;">Callback JSON</h2>
+        <div class="muted" style="margin-top:6px; line-height:1.5;">
+          Tx #{{ tx.id }}
+          • {{ tx.customer.phone if tx.customer else "-" }}
+          • {{ tx.package.code if tx.package else "-" }}
+          • Receipt: {{ tx.mpesa_receipt or "-" }}
+          • Status: <span class="pill">{{ tx.status }}</span>
+        </div>
+      </div>
+
+      <a href="{{ url_for('admin.transactions', status=request.args.get('status','')) }}"
+         style="text-decoration:none;">
+        ← Back
+      </a>
+    </div>
+
+    <div style="margin-top:12px;">
+      <pre style="
+        margin:0;
+        padding:12px;
+        border-radius:12px;
+        border:1px solid rgba(0,0,0,0.08);
+        background:#fff;
+        overflow:auto;
+        white-space:pre-wrap;
+        font-size:12px;
+        line-height:1.45;
+      ">{{ pretty_json or "No callback stored." }}</pre>
+    </div>
+  </div>
+{% endblock %}

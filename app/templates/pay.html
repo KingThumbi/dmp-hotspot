@@ -1,0 +1,310 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Pay{% endblock %}
+
+{% block content %}
+  <style>
+    /* Phone + Pay alignment fix */
+    .paybar{
+      display:grid;
+      grid-template-columns: 1fr 180px;
+      grid-template-rows: auto auto auto;
+      gap:6px 12px;
+      align-items:center;
+    }
+    .paybar label{ grid-column:1; grid-row:1; }
+    .paybar input{ grid-column:1; grid-row:2; width:100%; }
+    .paybar .help{ grid-column:1; grid-row:3; }
+    .paybar button{ grid-column:2; grid-row:2; height:42px; }
+
+    @media (max-width: 720px){
+      .paybar{
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+      }
+      .paybar button{
+        grid-column:1;
+        grid-row:4;
+        width:100%;
+        height:auto;
+      }
+    }
+  </style>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px;">
+      <div style="min-width:240px;">
+        <h1 style="margin:0; color:var(--navy); font-weight:900; font-size:20px;">Hotspot Payment</h1>
+        <div class="muted" style="margin-top:6px;">
+          Enter your phone number and select a package.
+        </div>
+      </div>
+
+      {% if current_user.is_authenticated %}
+        <a class="navlink"
+           style="background:rgba(255,255,255,.10); color:#fff; border:1px solid rgba(255,255,255,.18);"
+           href="{{ url_for('admin.dashboard') }}">
+          Admin
+        </a>
+      {% endif %}
+    </div>
+
+    <hr style="border:none; border-top:1px solid rgba(2,6,23,.08); margin:14px 0;">
+
+    <!-- ✅ Phone + Pay (button aligned to input) -->
+    <div class="paybar">
+      <label class="muted" style="display:block; font-size:13px; font-weight:900;">
+        Phone Number
+      </label>
+
+      <input
+        id="phone"
+        placeholder="0712345678"
+        inputmode="numeric"
+        autocomplete="tel"
+      />
+
+      <div class="help muted" style="font-size:12px;">
+        You will receive a payment prompt on this number.
+      </div>
+
+      <button
+        id="payBtn"
+        type="button"
+        onclick="submitPay()"
+        style="
+          min-width:180px;
+          background:#e5e7eb;
+          color:#111827;
+          box-shadow:none;
+          border:1px solid rgba(2,6,23,.10);
+        "
+        disabled
+      >
+        Pay
+      </button>
+    </div>
+
+    <!-- Packages -->
+    <div style="margin-top:16px;">
+      <div class="muted" style="font-weight:900; margin-bottom:8px;">Select a package</div>
+
+      <div id="packagesGrid" style="
+        display:grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap:12px;
+        width:100%;
+      ">
+        {% for p in packages %}
+          <button
+            type="button"
+            class="pkg-tile"
+            data-code="{{ p.code }}"
+            data-name="{{ p.name }}"
+            data-price="{{ p.price_kes }}"
+            onclick="selectPackage(this)"
+            style="
+              text-align:left;
+              background:#fff;
+              border:1px solid rgba(2,6,23,.10);
+              box-shadow:0 8px 18px rgba(2,6,23,.06);
+              border-radius:16px;
+              padding:14px;
+              color:var(--text);
+              width:100%;
+              overflow:hidden;
+              transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease;
+            "
+            title="{{ p.name }} — KES {{ p.price_kes }}"
+            aria-label="Select {{ p.name }} for KES {{ p.price_kes }}"
+          >
+            <div style="
+              font-weight:900;
+              color:var(--navy);
+              overflow:hidden;
+              text-overflow:ellipsis;
+              white-space:nowrap;
+            ">
+              {{ p.name }}
+            </div>
+
+            <!-- ✅ Price visible and legible -->
+            <div style="margin-top:8px; font-weight:900; font-size:18px; color:#111827; line-height:1.1;">
+              KES {{ p.price_kes }}
+            </div>
+
+            <div class="muted" style="margin-top:8px; font-size:12px;">
+              Tap to select
+            </div>
+          </button>
+        {% else %}
+          <div class="muted">No packages available.</div>
+        {% endfor %}
+      </div>
+
+      <div class="row" style="justify-content:space-between; margin-top:12px; align-items:center;">
+        <div class="muted" style="font-size:13px;">
+          Selected:
+          <span id="selectedLabel" style="font-weight:900; color:var(--navy);">None</span>
+        </div>
+        <div id="status" class="muted" style="font-weight:900;"></div>
+      </div>
+    </div>
+
+    <!-- Human-friendly result -->
+    <div style="margin-top:14px;">
+      <div id="resultBox" style="
+        border:1px solid rgba(2,6,23,.10);
+        border-radius:14px;
+        padding:14px;
+        background:#fff;
+        box-shadow:0 6px 18px rgba(2,6,23,.06);
+      ">
+        <div id="resultTitle" style="font-weight:900; color:var(--navy);">Ready</div>
+        <div id="resultMsg" class="muted" style="margin-top:6px;">
+          Select a package to continue.
+        </div>
+        <div id="resultMeta" class="muted" style="margin-top:10px; font-size:13px; display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedPackageCode = null;
+    let selectedPackageName = null;
+    let selectedPackagePrice = null;
+
+    function setPayButtonReady(isReady){
+      const btn = document.getElementById("payBtn");
+      if(isReady){
+        btn.disabled = false;
+        btn.style.background = "var(--navy)";
+        btn.style.color = "#fff";
+        btn.style.border = "1px solid rgba(255,255,255,.18)";
+        btn.style.boxShadow = "0 10px 18px rgba(0,0,128,.25)";
+      }else{
+        btn.disabled = true;
+        btn.style.background = "#e5e7eb";
+        btn.style.color = "#111827";
+        btn.style.border = "1px solid rgba(2,6,23,.10)";
+        btn.style.boxShadow = "none";
+      }
+    }
+
+    function setResult(title, msgHtml, metaText, kind){
+      const titleEl = document.getElementById("resultTitle");
+      const msgEl = document.getElementById("resultMsg");
+      const metaEl = document.getElementById("resultMeta");
+      const box = document.getElementById("resultBox");
+
+      titleEl.textContent = title;
+      msgEl.innerHTML = msgHtml;
+
+      if(kind === "success"){
+        titleEl.style.color = "var(--success-tx)";
+        box.style.background = "var(--success-bg)";
+        box.style.borderColor = "rgba(22,101,52,.18)";
+      }else if(kind === "warning"){
+        titleEl.style.color = "var(--warn-tx)";
+        box.style.background = "var(--warn-bg)";
+        box.style.borderColor = "rgba(146,64,14,.18)";
+      }else if(kind === "error"){
+        titleEl.style.color = "var(--danger-tx)";
+        box.style.background = "var(--danger-bg)";
+        box.style.borderColor = "rgba(127,29,29,.18)";
+      }else{
+        titleEl.style.color = "var(--navy)";
+        box.style.background = "#fff";
+        box.style.borderColor = "rgba(2,6,23,.10)";
+      }
+
+      if(metaText){
+        metaEl.style.display = "block";
+        metaEl.textContent = metaText;
+      }else{
+        metaEl.style.display = "none";
+        metaEl.textContent = "";
+      }
+    }
+
+    function normalizePhone(phone){
+      const p = phone.replace(/\s+/g, "");
+      if(/^07\d{8}$/.test(p)) return "254" + p.slice(1);
+      if(/^7\d{8}$/.test(p)) return "254" + p;
+      if(/^2547\d{8}$/.test(p)) return p;
+      return p;
+    }
+
+    function selectPackage(btn){
+      document.querySelectorAll(".pkg-tile").forEach(el => {
+        el.style.borderColor = "rgba(2,6,23,.10)";
+        el.style.boxShadow = "0 8px 18px rgba(2,6,23,.06)";
+        el.style.transform = "none";
+        el.style.background = "#fff";
+      });
+
+      btn.style.borderColor = "rgba(255,215,0,.75)";
+      btn.style.boxShadow = "0 14px 26px rgba(255,215,0,.22)";
+      btn.style.transform = "translateY(-1px)";
+      btn.style.background = "rgba(255,215,0,.16)";
+
+      selectedPackageCode = btn.dataset.code;
+      selectedPackageName = btn.dataset.name || selectedPackageCode;
+      selectedPackagePrice = btn.dataset.price || "";
+
+      const label = selectedPackagePrice
+        ? `${selectedPackageName} (KES ${selectedPackagePrice})`
+        : selectedPackageName;
+
+      document.getElementById("selectedLabel").textContent = label;
+      setPayButtonReady(true);
+
+      setResult("Selected", `Tap <b>Pay</b> to continue for <b>${label}</b>.`, null, "info");
+      document.getElementById("status").textContent = "";
+    }
+
+    async function submitPay(){
+      const phoneRaw = document.getElementById("phone").value.trim();
+      const phone = normalizePhone(phoneRaw);
+      const statusEl = document.getElementById("status");
+
+      if(!phoneRaw){
+        statusEl.textContent = "Enter your phone number.";
+        setResult("Missing phone", "Please enter your phone number to continue.", null, "error");
+        return;
+      }
+      if(!selectedPackageCode){
+        statusEl.textContent = "Select a package.";
+        setResult("Select a package", "Tap a package to continue.", null, "warning");
+        return;
+      }
+
+      statusEl.textContent = "Processing…";
+      setResult("Processing…", "Sending payment prompt. Please wait…", null, "info");
+
+      try{
+        const r = await fetch("/pay", {
+          method:"POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ phone: phone, package: selectedPackageCode })
+        });
+
+        const data = await r.json().catch(() => ({}));
+
+        if(r.ok){
+          setResult("Prompt Sent", "Check your phone and complete the payment.", null, "success");
+          statusEl.textContent = "Prompt sent. Check your phone.";
+        }else{
+          const msg = data.error || data.message || data.ResultDesc || "Payment request failed. Please try again.";
+          setResult("Could not send prompt", msg, null, "error");
+          statusEl.textContent = "Failed. Try again.";
+        }
+      }catch(e){
+        setResult("Network error", "Please check your connection and try again.", null, "error");
+        statusEl.textContent = "Network error.";
+      }
+    }
+
+    setPayButtonReady(false);
+  </script>
+{% endblock %}

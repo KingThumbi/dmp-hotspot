@@ -1,0 +1,51 @@
+{% extends "admin/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+  <div class="grid">
+    <div class="card"><div class="muted">Customers</div><h2>{{ stats.customers }}</h2></div>
+    <div class="card"><div class="muted">Active Subs</div><h2>{{ stats.subs_active }}</h2></div>
+    <div class="card"><div class="muted">Pending Subs</div><h2>{{ stats.subs_pending }}</h2></div>
+  </div>
+
+  <div class="grid" style="margin-top:12px;">
+    <div class="card"><div class="muted">Success (24h)</div><h2>{{ stats.tx_success_today }}</h2></div>
+    <div class="card"><div class="muted">Success (7d)</div><h2>{{ stats.tx_success_7d }}</h2></div>
+    <div class="card"><div class="muted">Failed (7d)</div><h2>{{ stats.tx_failed_7d }}</h2></div>
+  </div>
+
+  <div class="row" style="margin-top:16px;">
+    <div class="card" style="flex:1;">
+      <h3>Recent Transactions</h3>
+      <table>
+        <tr><th>ID</th><th>Status</th><th>Amount</th><th>Receipt</th><th>Created</th></tr>
+        {% for t in recent_tx %}
+          <tr>
+            <td>{{ t.id }}</td>
+            <td><span class="pill">{{ t.status }}</span></td>
+            <td>{{ t.amount }}</td>
+            <td>{{ t.mpesa_receipt or "-" }}</td>
+            <td class="muted">{{ t.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:16px;">
+    <div class="card" style="flex:1;">
+      <h3>Recent Subscriptions</h3>
+      <table>
+        <tr><th>ID</th><th>Status</th><th>User</th><th>Starts</th><th>Expires</th></tr>
+        {% for s in recent_subs %}
+          <tr>
+            <td>{{ s.id }}</td>
+            <td><span class="pill">{{ s.status }}</span></td>
+            <td>{{ s.router_username }}</td>
+            <td class="muted">{{ s.starts_at or "-" }}</td>
+            <td class="muted">{{ s.expires_at or "-" }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+{% endblock %}
