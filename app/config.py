@@ -58,5 +58,6 @@ class Config:
     PORTAL_BASE_URL = os.getenv("PORTAL_BASE_URL", "").rstrip("/")
     API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
 
-    RATELIMIT_STORAGE_URI = "redis://localhost:6379/0"
+    RATELIMIT_STORAGE_URI = os.getenv("REDIS_URL", "memory://")
+
 

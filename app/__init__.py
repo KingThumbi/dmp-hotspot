@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from flask import Flask, send_from_directory
 
 from .config import Config
@@ -15,6 +16,12 @@ def create_app() -> Flask:
     # Ensure sessions work (needed for Flask-Login + flashing)
     app.config.setdefault("SECRET_KEY", "dev-change-me")
 
+    # Rate limiter storage:
+    # - Prefer REDIS_URL (Starter/prod)
+    # - Fall back to in-memory if not configured (won't crash deploy)
+    redis_url = os.getenv("REDIS_URL")
+    app.config["RATELIMIT_STORAGE_URI"] = redis_url or "memory://"
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
@@ -28,12 +35,10 @@ def create_app() -> Flask:
     app.register_blueprint(main)
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
-    # Simple sanity check endpoint (avoid clashing with main "/")
     @app.get("/_ping")
     def ping():
         return {"service": "dmp-hotspot", "status": "running"}
 
-    # Favicon handler
     @app.get("/favicon.ico")
     def favicon():
         return send_from_directory("static", "favicon.ico")
