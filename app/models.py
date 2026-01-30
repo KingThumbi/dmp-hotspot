@@ -1,11 +1,84 @@
 from __future__ import annotations
 
 from datetime import datetime
+
+from flask_login import UserMixin
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from .extensions import db
 
 
 # =========================================================
-# Packages (hotspot plans)
+# Admin Users (Dashboard Login)
+# =========================================================
+class AdminUser(UserMixin, db.Model):
+    """
+    Admin users who can access /admin/* routes.
+
+    - Table name remains "admin_users" (matches DB).
+    - Login identifier is email (store lowercase).
+    - Uses strong password hashing (scrypt) for new/updated passwords.
+    """
+    __tablename__ = "admin_users"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # --- Password helpers ---
+    @staticmethod
+    def hash_password(password: str) -> str:
+        return generate_password_hash(password, method="scrypt")
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = self.hash_password(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+    def __repr__(self) -> str:
+        return f"<AdminUser id={self.id} email={self.email}>"
+
+
+# =========================================================
+# Admin Audit Logs
+# =========================================================
+class AdminAuditLog(db.Model):
+    __tablename__ = "admin_audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    admin_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # e.g. login_success, login_failed, password_changed, logout
+    action = db.Column(db.String(60), nullable=False, index=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+
+    # optional metadata (JSON stored as text)
+    meta_json = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    admin_user = db.relationship("AdminUser", lazy="joined")
+
+    def __repr__(self) -> str:
+        return f"<AdminAuditLog id={self.id} action={self.action} admin_user_id={self.admin_user_id}>"
+
+
+# =========================================================
+# Packages (Hotspot Plans)
 # =========================================================
 class Package(db.Model):
     __tablename__ = "packages"
@@ -17,16 +90,15 @@ class Package(db.Model):
 
     name = db.Column(db.String(60), nullable=False)
 
-    # Duration of access in minutes
     duration_minutes = db.Column(db.Integer, nullable=False)
-
-    # Price in Kenyan Shillings
     price_kes = db.Column(db.Integer, nullable=False)
 
-    # MikroTik profile name (e.g. HS-DAILY, HS-WEEKLY)
     mikrotik_profile = db.Column(db.String(60), nullable=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    subscriptions = db.relationship("Subscription", back_populates="package", lazy="select")
+    transactions = db.relationship("Transaction", back_populates="package", lazy="select")
 
     def __repr__(self) -> str:
         return f"<Package id={self.id} code={self.code} price_kes={self.price_kes}>"
@@ -40,12 +112,11 @@ class Customer(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # Store phone in a normalized way in your app logic if possible (e.g. 2547...)
+    # Store phone in normalized format (e.g. 2547XXXXXXXX)
     phone = db.Column(db.String(20), unique=True, nullable=False, index=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    # Helpful reverse relationships (optional but clean)
     subscriptions = db.relationship(
         "Subscription",
         back_populates="customer",
@@ -64,7 +135,7 @@ class Customer(db.Model):
 
 
 # =========================================================
-# Subscriptions (customer entitlement)
+# Subscriptions (Customer Entitlement)
 # =========================================================
 class Subscription(db.Model):
     __tablename__ = "subscriptions"
@@ -86,26 +157,18 @@ class Subscription(db.Model):
     # bind after first login
     mac_address = db.Column(db.String(30), nullable=True, index=True)
 
-    # IMPORTANT:
-    # This is the DB column you already have.
-    # It represents the *last* (most recent) transaction affecting this subscription.
+    # last tx that affected this subscription
     last_tx_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=True, index=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
-    customer = db.relationship("Customer", back_populates="subscriptions")
-    package = db.relationship("Package", lazy="joined")
+    customer = db.relationship("Customer", back_populates="subscriptions", lazy="joined")
+    package = db.relationship("Package", back_populates="subscriptions", lazy="joined")
 
-    last_transaction = db.relationship(
-        "Transaction",
-        foreign_keys=[last_tx_id],
-        lazy="joined",
-    )
+    last_transaction = db.relationship("Transaction", foreign_keys=[last_tx_id], lazy="joined")
 
-    # ✅ Compatibility alias:
-    # Your routes currently pass `transaction_id=tx.id`.
-    # Instead of crashing, this property maps that to `last_tx_id`.
+    # Compatibility alias (do NOT use in query filters; use last_tx_id)
     @property
     def transaction_id(self) -> int | None:
         return self.last_tx_id
@@ -114,7 +177,7 @@ class Subscription(db.Model):
     def transaction_id(self, value: int | None) -> None:
         self.last_tx_id = value
 
-    def is_active(self, now: datetime | None = None) -> bool:
+    def is_active_now(self, now: datetime | None = None) -> bool:
         now = now or datetime.utcnow()
         return (
             self.status == "active"
@@ -154,9 +217,8 @@ class Transaction(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
-    # Relationships
-    customer = db.relationship("Customer", back_populates="transactions")
-    package = db.relationship("Package", lazy="joined")
+    customer = db.relationship("Customer", back_populates="transactions", lazy="joined")
+    package = db.relationship("Package", back_populates="transactions", lazy="joined")
 
     def __repr__(self) -> str:
         return f"<Transaction id={self.id} status={self.status} amount={self.amount}>"

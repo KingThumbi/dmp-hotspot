@@ -46,8 +46,10 @@ class Config:
     if MPESA_ENV not in ("sandbox", "production"):
         raise RuntimeError("MPESA_ENV must be 'sandbox' or 'production'")
 
-    if not MPESA_CALLBACK_URL:
-        raise RuntimeError("MPESA_CALLBACK_URL is not set")
+    # Only enforce callback URL in production
+    if MPESA_ENV == "production" and not MPESA_CALLBACK_URL:
+        raise RuntimeError("MPESA_CALLBACK_URL is not set (required in production)")
+
 
 
     # =========================================================
@@ -55,3 +57,6 @@ class Config:
     # =========================================================
     PORTAL_BASE_URL = os.getenv("PORTAL_BASE_URL", "").rstrip("/")
     API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
+
+    RATELIMIT_STORAGE_URI = "redis://localhost:6379/0"
+
