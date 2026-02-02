@@ -18,6 +18,15 @@ PACKAGES = [
     ("monthly_5", "Monthly - 5 Users (30 Days)",43200, 900,  "5users_monthly"),
 ]
 
+PPPOE_PACKAGES = [
+    ("pppoe_3m",  "PPPoE - 3Mbps (30 Days)",  43200, 1000, "pppoe-3M"),
+    ("pppoe_7m",  "PPPoE - 7Mbps (30 Days)",  43200, 1500, "pppoe-7M"),
+    ("pppoe_12m", "PPPoE - 12Mbps (30 Days)", 43200, 2000, "pppoe-12M"),
+    ("pppoe_20m", "PPPoE - 20Mbps (30 Days)", 43200, 2500, "pppoe-20M"),
+    ("pppoe_30m", "PPPoE - 30Mbps (30 Days)", 43200, 3000, "pppoe-30M"),
+]
+
+
 with app.app_context():
     db.create_all()
     for code, name, mins, price, profile in PACKAGES:

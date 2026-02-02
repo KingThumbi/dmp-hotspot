@@ -4,18 +4,75 @@
 
 {% block content %}
   <style>
-    /* Phone + Pay alignment fix */
+    /* =========================================================
+       Layout + Utilities
+       ========================================================= */
+    .page { padding-bottom: 96px; } /* room for sticky bar on mobile */
+
+    .hr {
+      border: none;
+      border-top: 1px solid rgba(2,6,23,.08);
+      margin: 14px 0;
+    }
+
+    .btn {
+      border-radius: 14px;
+      font-weight: 900;
+      border: 1px solid rgba(2,6,23,.10);
+      box-shadow: none;
+      padding: 10px 14px;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease, opacity .12s ease;
+      user-select: none;
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: .7;
+    }
+
+    .btn--primary {
+      background: var(--navy);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 10px 18px rgba(0,0,128,.25);
+    }
+
+    .btn--neutral {
+      background: #e5e7eb;
+      color: #111827;
+      border: 1px solid rgba(2,6,23,.10);
+      box-shadow: none;
+    }
+
+    .input {
+      width: 100%;
+      height: 42px;
+      border-radius: 12px;
+      border: 1px solid rgba(2,6,23,.10);
+      padding: 0 12px;
+      outline: none;
+      font-weight: 800;
+    }
+    .input:focus {
+      border-color: rgba(0,0,128,.35);
+      box-shadow: 0 0 0 4px rgba(0,0,128,.08);
+    }
+
+    /* =========================================================
+       Phone + Pay bar (desktop)
+       ========================================================= */
     .paybar{
       display:grid;
       grid-template-columns: 1fr 180px;
       grid-template-rows: auto auto auto;
-      gap:6px 12px;
-      align-items:center;
+      gap: 6px 12px;
+      align-items: center;
     }
     .paybar label{ grid-column:1; grid-row:1; }
-    .paybar input{ grid-column:1; grid-row:2; width:100%; }
+    .paybar input{ grid-column:1; grid-row:2; }
     .paybar .help{ grid-column:1; grid-row:3; }
-    .paybar button{ grid-column:2; grid-row:2; height:42px; }
+    .paybar button{ grid-column:2; grid-row:2; height: 42px; }
 
     @media (max-width: 720px){
       .paybar{
@@ -28,15 +85,56 @@
         width:100%;
         height:auto;
       }
+      /* Hide the top pay button on phones (keep phone input) */
+      #payBtn{ display:none; }
     }
 
     /* =========================================================
-       Mobile Sticky Pay Bar (Option 1)
+       Packages grid + selection
        ========================================================= */
+    .packagesGrid{
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      width: 100%;
+    }
 
-    /* Make room so bottom content isn't hidden behind sticky bar */
-    .page { padding-bottom: 96px; }
+    .pkg-tile{
+      text-align:left;
+      background:#fff;
+      border: 1px solid rgba(2,6,23,.10);
+      box-shadow: 0 8px 18px rgba(2,6,23,.06);
+      border-radius: 16px;
+      padding: 14px;
+      color: var(--text);
+      width: 100%;
+      overflow: hidden;
+    }
+    .pkg-tile:hover{
+      transform: translateY(-1px);
+      box-shadow: 0 12px 22px rgba(2,6,23,.08);
+    }
+    .pkg-tile.is-selected{
+      border-color: rgba(255,215,0,.75);
+      box-shadow: 0 14px 26px rgba(255,215,0,.22);
+      background: rgba(255,215,0,.16);
+      transform: translateY(-1px);
+    }
 
+    /* =========================================================
+       Result box
+       ========================================================= */
+    .resultBox{
+      border: 1px solid rgba(2,6,23,.10);
+      border-radius: 14px;
+      padding: 14px;
+      background: #fff;
+      box-shadow: 0 6px 18px rgba(2,6,23,.06);
+    }
+
+    /* =========================================================
+       Mobile Sticky Pay Bar
+       ========================================================= */
     .stickyPaybar{
       position: fixed;
       left: 0; right: 0; bottom: 0;
@@ -44,32 +142,25 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-
       padding: 12px 14px;
       padding-bottom: calc(12px + env(safe-area-inset-bottom));
-
       background: rgba(255,255,255,.92);
       backdrop-filter: blur(10px);
       border-top: 1px solid rgba(2,6,23,.10);
       z-index: 999;
     }
 
-    .stickyPaybar__info{
-      min-width: 0;
-      flex: 1;
-    }
-
+    .stickyPaybar__info{ min-width:0; flex:1; }
     .stickyPaybar__label{
       font-size: 12px;
       font-weight: 900;
       color: rgba(2,6,23,.60);
       line-height: 1.1;
     }
-
     .stickyPaybar__value{
       font-weight: 900;
       color: var(--navy);
-      overflow: hidden;
+      overflow:hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 58vw;
@@ -79,8 +170,6 @@
 
     @media (max-width: 720px){
       .stickyPaybar{ display:flex; }
-      /* Hide the top pay button on phones (keep phone input) */
-      #payBtn{ display:none; }
     }
   </style>
 
@@ -102,37 +191,33 @@
       {% endif %}
     </div>
 
-    <hr style="border:none; border-top:1px solid rgba(2,6,23,.08); margin:14px 0;">
+    <hr class="hr">
 
-    <!-- ✅ Phone + Pay (button aligned to input) -->
+    <!-- Phone + Pay -->
     <div class="paybar">
-      <label class="muted" style="display:block; font-size:13px; font-weight:900;">
+      <label for="phone" class="muted" style="display:block; font-size:13px; font-weight:900;">
         Phone Number
       </label>
 
       <input
         id="phone"
+        class="input"
         placeholder="0712345678"
         inputmode="numeric"
         autocomplete="tel"
+        aria-describedby="phoneHelp"
       />
 
-      <div class="help muted" style="font-size:12px;">
+      <div id="phoneHelp" class="help muted" style="font-size:12px;">
         You will receive a payment prompt on this number.
       </div>
 
-      <!-- Desktop Pay button (hidden on mobile via CSS) -->
+      <!-- Desktop Pay button (hidden on mobile) -->
       <button
         id="payBtn"
         type="button"
+        class="btn btn--neutral"
         onclick="submitPay()"
-        style="
-          min-width:180px;
-          background:#e5e7eb;
-          color:#111827;
-          box-shadow:none;
-          border:1px solid rgba(2,6,23,.10);
-        "
         disabled
       >
         Pay
@@ -143,12 +228,7 @@
     <div style="margin-top:16px;">
       <div class="muted" style="font-weight:900; margin-bottom:8px;">Select a package</div>
 
-      <div id="packagesGrid" style="
-        display:grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap:12px;
-        width:100%;
-      ">
+      <div id="packagesGrid" class="packagesGrid">
         {% for p in packages %}
           <button
             type="button"
@@ -157,32 +237,13 @@
             data-name="{{ p.name }}"
             data-price="{{ p.price_kes }}"
             onclick="selectPackage(this)"
-            style="
-              text-align:left;
-              background:#fff;
-              border:1px solid rgba(2,6,23,.10);
-              box-shadow:0 8px 18px rgba(2,6,23,.06);
-              border-radius:16px;
-              padding:14px;
-              color:var(--text);
-              width:100%;
-              overflow:hidden;
-              transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease;
-            "
             title="{{ p.name }} — KES {{ p.price_kes }}"
             aria-label="Select {{ p.name }} for KES {{ p.price_kes }}"
           >
-            <div style="
-              font-weight:900;
-              color:var(--navy);
-              overflow:hidden;
-              text-overflow:ellipsis;
-              white-space:nowrap;
-            ">
+            <div style="font-weight:900; color:var(--navy); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
               {{ p.name }}
             </div>
 
-            <!-- ✅ Price visible and legible -->
             <div style="margin-top:8px; font-weight:900; font-size:18px; color:#111827; line-height:1.1;">
               KES {{ p.price_kes }}
             </div>
@@ -201,19 +262,13 @@
           Selected:
           <span id="selectedLabel" style="font-weight:900; color:var(--navy);">None</span>
         </div>
-        <div id="status" class="muted" style="font-weight:900;"></div>
+        <div id="status" class="muted" style="font-weight:900;" aria-live="polite"></div>
       </div>
     </div>
 
-    <!-- Human-friendly result -->
+    <!-- Result -->
     <div style="margin-top:14px;">
-      <div id="resultBox" style="
-        border:1px solid rgba(2,6,23,.10);
-        border-radius:14px;
-        padding:14px;
-        background:#fff;
-        box-shadow:0 6px 18px rgba(2,6,23,.06);
-      ">
+      <div id="resultBox" class="resultBox">
         <div id="resultTitle" style="font-weight:900; color:var(--navy);">Ready</div>
         <div id="resultMsg" class="muted" style="margin-top:6px;">
           Select a package to continue.
@@ -223,7 +278,7 @@
     </div>
   </div>
 
-  <!-- ✅ Mobile sticky Pay bar (Option 1) -->
+  <!-- Mobile sticky Pay bar -->
   <div class="stickyPaybar" role="region" aria-label="Payment actions">
     <div class="stickyPaybar__info">
       <div class="stickyPaybar__label">Selected package</div>
@@ -233,17 +288,9 @@
     <button
       id="stickyPayBtn"
       type="button"
+      class="btn btn--neutral"
       onclick="submitPay()"
-      style="
-        min-width:140px;
-        height:44px;
-        border-radius:14px;
-        font-weight:900;
-        background:#e5e7eb;
-        color:#111827;
-        box-shadow:none;
-        border:1px solid rgba(2,6,23,.10);
-      "
+      style="min-width:140px; height:44px;"
       disabled
     >
       Pay
@@ -254,36 +301,21 @@
     let selectedPackageCode = null;
     let selectedPackageName = null;
     let selectedPackagePrice = null;
+    let isSubmitting = false;
 
-    function setPayButtonReady(isReady){
+    function setButtonsEnabled(enabled){
       const btn = document.getElementById("payBtn");
       const stickyBtn = document.getElementById("stickyPayBtn");
 
-      function applyReadyStyles(b){
+      const apply = (b) => {
         if(!b) return;
-        b.disabled = false;
-        b.style.background = "var(--navy)";
-        b.style.color = "#fff";
-        b.style.border = "1px solid rgba(255,255,255,.18)";
-        b.style.boxShadow = "0 10px 18px rgba(0,0,128,.25)";
-      }
+        b.disabled = !enabled;
+        b.classList.remove("btn--primary", "btn--neutral");
+        b.classList.add(enabled ? "btn--primary" : "btn--neutral");
+      };
 
-      function applyDisabledStyles(b){
-        if(!b) return;
-        b.disabled = true;
-        b.style.background = "#e5e7eb";
-        b.style.color = "#111827";
-        b.style.border = "1px solid rgba(2,6,23,.10)";
-        b.style.boxShadow = "none";
-      }
-
-      if(isReady){
-        applyReadyStyles(btn);
-        applyReadyStyles(stickyBtn);
-      }else{
-        applyDisabledStyles(btn);
-        applyDisabledStyles(stickyBtn);
-      }
+      apply(btn);
+      apply(stickyBtn);
     }
 
     function setResult(title, msgHtml, metaText, kind){
@@ -294,6 +326,11 @@
 
       titleEl.textContent = title;
       msgEl.innerHTML = msgHtml;
+
+      // reset
+      titleEl.style.color = "var(--navy)";
+      box.style.background = "#fff";
+      box.style.borderColor = "rgba(2,6,23,.10)";
 
       if(kind === "success"){
         titleEl.style.color = "var(--success-tx)";
@@ -307,10 +344,6 @@
         titleEl.style.color = "var(--danger-tx)";
         box.style.background = "var(--danger-bg)";
         box.style.borderColor = "rgba(127,29,29,.18)";
-      }else{
-        titleEl.style.color = "var(--navy)";
-        box.style.background = "#fff";
-        box.style.borderColor = "rgba(2,6,23,.10)";
       }
 
       if(metaText){
@@ -323,25 +356,24 @@
     }
 
     function normalizePhone(phone){
-      const p = phone.replace(/\s+/g, "");
+      const p = (phone || "").replace(/\s+/g, "");
       if(/^07\d{8}$/.test(p)) return "254" + p.slice(1);
       if(/^7\d{8}$/.test(p)) return "254" + p;
       if(/^2547\d{8}$/.test(p)) return p;
       return p;
     }
 
-    function selectPackage(btn){
-      document.querySelectorAll(".pkg-tile").forEach(el => {
-        el.style.borderColor = "rgba(2,6,23,.10)";
-        el.style.boxShadow = "0 8px 18px rgba(2,6,23,.06)";
-        el.style.transform = "none";
-        el.style.background = "#fff";
-      });
+    function isValidKenyanMobile(phone){
+      return /^2547\d{8}$/.test(phone);
+    }
 
-      btn.style.borderColor = "rgba(255,215,0,.75)";
-      btn.style.boxShadow = "0 14px 26px rgba(255,215,0,.22)";
-      btn.style.transform = "translateY(-1px)";
-      btn.style.background = "rgba(255,215,0,.16)";
+    function clearSelectedStyles(){
+      document.querySelectorAll(".pkg-tile").forEach(el => el.classList.remove("is-selected"));
+    }
+
+    function selectPackage(btn){
+      clearSelectedStyles();
+      btn.classList.add("is-selected");
 
       selectedPackageCode = btn.dataset.code;
       selectedPackageName = btn.dataset.name || selectedPackageCode;
@@ -352,18 +384,18 @@
         : selectedPackageName;
 
       document.getElementById("selectedLabel").textContent = label;
-
-      // Update sticky bar selection label
       const stickySelected = document.getElementById("stickySelected");
       if (stickySelected) stickySelected.textContent = label;
 
-      setPayButtonReady(true);
+      if(!isSubmitting) setButtonsEnabled(true);
 
       setResult("Selected", `Tap <b>Pay</b> to continue for <b>${label}</b>.`, null, "info");
       document.getElementById("status").textContent = "";
     }
 
     async function submitPay(){
+      if(isSubmitting) return;
+
       const phoneRaw = document.getElementById("phone").value.trim();
       const phone = normalizePhone(phoneRaw);
       const statusEl = document.getElementById("status");
@@ -373,14 +405,24 @@
         setResult("Missing phone", "Please enter your phone number to continue.", null, "error");
         return;
       }
+
+      if(!isValidKenyanMobile(phone)){
+        statusEl.textContent = "Invalid phone format.";
+        setResult("Invalid phone", "Use <b>0712345678</b> or <b>254712345678</b>.", `Normalized: ${phone}`, "error");
+        return;
+      }
+
       if(!selectedPackageCode){
         statusEl.textContent = "Select a package.";
         setResult("Select a package", "Tap a package to continue.", null, "warning");
         return;
       }
 
+      isSubmitting = true;
+      setButtonsEnabled(false);
+
       statusEl.textContent = "Processing…";
-      setResult("Processing…", "Sending payment prompt. Please wait…", null, "info");
+      setResult("Processing…", "Sending payment prompt. Please wait…", `Phone: ${phone}`, "info");
 
       try{
         const r = await fetch("/pay", {
@@ -402,11 +444,15 @@
       }catch(e){
         setResult("Network error", "Please check your connection and try again.", null, "error");
         statusEl.textContent = "Network error.";
+      }finally{
+        isSubmitting = false;
+        // re-enable only if a package is selected
+        setButtonsEnabled(!!selectedPackageCode);
       }
     }
 
-    // Initial state
-    setPayButtonReady(false);
+    // initial state
+    setButtonsEnabled(false);
     const stickySelected = document.getElementById("stickySelected");
     if (stickySelected) stickySelected.textContent = "None";
   </script>

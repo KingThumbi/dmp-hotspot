@@ -31,11 +31,13 @@
 
       --danger-bg:#fee2e2;
       --danger-tx:#7f1d1d;
+
+      /* Link defaults on light surfaces */
+      --link:#1d4ed8;
+      --link-hover:#2563eb;
     }
 
     *{ box-sizing:border-box; }
-
-    /* ✅ Prevent any page-level horizontal overflow */
     html, body{ width:100%; max-width:100%; overflow-x:hidden; }
 
     body{
@@ -46,8 +48,9 @@
       line-height:1.45;
     }
 
-    a{ color:var(--navy); text-decoration:none; }
-    a:hover{ color:var(--navy-2); text-decoration:underline; }
+    /* Default anchors on LIGHT surfaces (cards/pages) */
+    a{ color:var(--link); text-decoration:none; }
+    a:hover{ color:var(--link-hover); text-decoration:underline; }
 
     /* ---------------------------
        Header / Nav
@@ -97,7 +100,8 @@
       margin-left:6px;
     }
 
-    .navlink{
+    /* Header navigation link style (on DARK header) */
+    header .navlink{
       color:#fff;
       text-decoration:none;
       padding:8px 10px;
@@ -108,9 +112,17 @@
       white-space:nowrap;
       display:inline-flex;
       align-items:center;
+      gap:6px;
     }
-    .navlink:hover{ opacity:1; background:rgba(255,255,255,.08); text-decoration:none; }
-    .navlink.active{ color:var(--gold); background:rgba(255,215,0,.14); }
+    header .navlink:hover{
+      opacity:1;
+      background:rgba(255,255,255,.08);
+      text-decoration:none;
+    }
+    header .navlink.active{
+      color:var(--gold);
+      background:rgba(255,215,0,.14);
+    }
 
     .spacer{ flex:1; min-width:10px; }
 
@@ -146,6 +158,8 @@
       border:1px solid rgba(255,215,0,.35);
       box-shadow:0 10px 18px rgba(255,215,0,.20);
       white-space:nowrap;
+      display:inline-flex;
+      align-items:center;
     }
     .logout:hover{
       background:var(--gold-2);
@@ -169,7 +183,7 @@
       border:1px solid var(--border);
       box-shadow:var(--shadow);
       max-width:100%;
-      min-width:0; /* ✅ allows inner content to shrink */
+      min-width:0;
     }
 
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -178,7 +192,7 @@
     .muted{ color:var(--muted); }
     .nowrap{ white-space:nowrap; }
 
-    /* ✅ Centered page layout (Security page, future forms, etc.) */
+    /* Center helpers (use in templates that need centered cards) */
     .centered-page{
       display:flex;
       justify-content:center;
@@ -186,11 +200,11 @@
     }
     .centered-card{
       width:100%;
-      max-width:520px;
+      max-width:820px; /* better for forms like PPPoE */
     }
 
     /* ---------------------------
-       Inputs / Buttons
+       Buttons / Inputs
     ----------------------------*/
     input, select{
       padding:10px 12px;
@@ -221,13 +235,32 @@
     button:hover{ background:var(--gold-2); }
     button:active{ transform:translateY(1px); }
 
+    /* Secondary link buttons used inside cards (light backgrounds) */
+    .btnlink{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:8px 10px;
+      border-radius:12px;
+      font-weight:900;
+      text-decoration:none;
+      border:1px solid rgba(2,6,23,.10);
+      background:rgba(2,6,23,.02);
+      color:var(--link); /* ✅ visible on white cards */
+    }
+    .btnlink:hover{
+      background:rgba(2,6,23,.04);
+      text-decoration:none;
+      color:var(--link-hover);
+    }
+
     /* ---------------------------
-       Tables (Future-proof)
+       Tables
     ----------------------------*/
     .table-wrap{
       width:100%;
       max-width:100%;
-      overflow-x:auto;              /* ✅ scroll inside card (never page overflow) */
+      overflow-x:auto;
       -webkit-overflow-scrolling:touch;
       border-radius:14px;
       border:1px solid rgba(2,6,23,.06);
@@ -236,8 +269,8 @@
     table{
       width:100%;
       border-collapse:collapse;
-      table-layout:fixed;           /* ✅ prevents long strings from widening the table */
-      min-width:860px;              /* ✅ structured table; scrolls on small screens */
+      table-layout:fixed;
+      min-width:860px;
       background:#fff;
     }
 
@@ -263,7 +296,7 @@
     tbody tr:hover td{ background:#fbfcff; }
 
     .truncate{
-      max-width:280px;              /* use on long columns */
+      max-width:280px;
       overflow:hidden;
       text-overflow:ellipsis;
       white-space:nowrap;
@@ -272,7 +305,7 @@
     }
 
     /* ---------------------------
-       Status Pills
+       Pills
     ----------------------------*/
     .pill{
       display:inline-flex;
@@ -322,6 +355,7 @@
       .grid{ grid-template-columns:1fr; }
       .userchip .email{ max-width:180px; }
       table{ min-width:760px; }
+      .centered-card{ max-width:100%; }
     }
   </style>
 </head>
@@ -342,11 +376,26 @@
 
       {% if current_user.is_authenticated %}
         <nav>
-          <a class="navlink {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-          <a class="navlink {% if request.endpoint in ['admin.customers','admin.customer_detail'] %}active{% endif %}" href="{{ url_for('admin.customers') }}">Customers</a>
-          <a class="navlink {% if request.endpoint in ['admin.subscriptions'] %}active{% endif %}" href="{{ url_for('admin.subscriptions') }}">Subscriptions</a>
-          <a class="navlink {% if request.endpoint in ['admin.transactions','admin.transaction_callback_json'] %}active{% endif %}" href="{{ url_for('admin.transactions') }}">Transactions</a>
-          <a class="navlink {% if request.endpoint in ['admin.account_password_get','admin.account_password_post'] %}active{% endif %}" href="{{ url_for('admin.account_password_get') }}">Security</a>
+          <a class="navlink {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+             href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+
+          <a class="navlink {% if request.endpoint in ['admin.customers','admin.customer_detail'] %}active{% endif %}"
+             href="{{ url_for('admin.customers') }}">Customers</a>
+
+          <a class="navlink {% if request.endpoint == 'admin.subscriptions' and (request.args.get('svc','')|lower) == '' %}active{% endif %}"
+             href="{{ url_for('admin.subscriptions') }}">Subscriptions</a>
+
+          <a class="navlink {% if request.endpoint == 'admin.subscriptions' and (request.args.get('svc','')|lower) == 'pppoe' %}active{% endif %}"
+             href="{{ url_for('admin.subscriptions', svc='pppoe') }}">PPPoE</a>
+
+          <a class="navlink {% if request.endpoint in ['admin.pppoe_new','admin.pppoe_create'] %}active{% endif %}"
+             href="{{ url_for('admin.pppoe_new') }}">+ PPPoE</a>
+
+          <a class="navlink {% if request.endpoint in ['admin.transactions','admin.transaction_callback_json'] %}active{% endif %}"
+             href="{{ url_for('admin.transactions') }}">Transactions</a>
+
+          <a class="navlink {% if request.endpoint in ['admin.account_password_get','admin.account_password_post'] %}active{% endif %}"
+             href="{{ url_for('admin.account_password_get') }}">Security</a>
         </nav>
 
         <div class="spacer"></div>

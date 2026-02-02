@@ -40,7 +40,7 @@
           <tr>
             <td>{{ s.id }}</td>
             <td><span class="pill">{{ s.status }}</span></td>
-            <td>{{ s.router_username }}</td>
+            <td>{{ s.pppoe_username or s.hotspot_username or s.router_username or "-" }}</td>
             <td class="muted">{{ s.starts_at or "-" }}</td>
             <td class="muted">{{ s.expires_at or "-" }}</td>
           </tr>

@@ -1,8 +1,11 @@
+# app/models.py
 from __future__ import annotations
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from flask_login import UserMixin
+from sqlalchemy.sql import func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .extensions import db
@@ -26,9 +29,14 @@ class AdminUser(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
 
     password_hash = db.Column(db.String(255), nullable=False)
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=sa.text("true"))
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,          # SQLAlchemy inserts
+        server_default=func.now(),        # raw SQL inserts
+    )
 
     # --- Password helpers ---
     @staticmethod
@@ -69,7 +77,13 @@ class AdminAuditLog(db.Model):
     # optional metadata (JSON stored as text)
     meta_json = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        index=True,
+        default=datetime.utcnow,          # SQLAlchemy inserts
+        server_default=func.now(),        # raw SQL inserts
+    )
 
     admin_user = db.relationship("AdminUser", lazy="joined")
 
@@ -78,24 +92,44 @@ class AdminAuditLog(db.Model):
 
 
 # =========================================================
-# Packages (Hotspot Plans)
+# Packages (Hotspot & PPPoE Plans)
 # =========================================================
 class Package(db.Model):
+    """
+    Represents any plan you sell.
+
+    Hotspot examples:
+      - daily_1, weekly_2, monthly_5, etc.
+
+    PPPoE examples:
+      - pppoe_3m, pppoe_7m, pppoe_12m, etc.
+
+    NOTE:
+    Single table for both services.
+    Service is inferred by code prefix (pppoe_*) and/or Subscription.service_type.
+    """
     __tablename__ = "packages"
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # e.g. daily_1, weekly_1, monthly_2, etc.
-    code = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    code = db.Column(db.String(30), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
 
-    name = db.Column(db.String(60), nullable=False)
-
+    # Hotspot: minutes
+    # PPPoE: 30 days => 43200 minutes (your chosen month length)
     duration_minutes = db.Column(db.Integer, nullable=False)
+
     price_kes = db.Column(db.Integer, nullable=False)
 
+    # MikroTik profile name
     mikrotik_profile = db.Column(db.String(60), nullable=False)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,          # SQLAlchemy inserts
+        server_default=func.now(),        # raw SQL inserts
+    )
 
     subscriptions = db.relationship("Subscription", back_populates="package", lazy="select")
     transactions = db.relationship("Transaction", back_populates="package", lazy="select")
@@ -115,7 +149,18 @@ class Customer(db.Model):
     # Store phone in normalized format (e.g. 2547XXXXXXXX)
     phone = db.Column(db.String(20), unique=True, nullable=False, index=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    # PPPoE creds (optional; used when service_type="pppoe")
+    # Matches /ppp secret name on MikroTik, e.g. "D044"
+    # NOTE: keep unique=True if you truly want ONE customer per PPPoE username.
+    pppoe_username = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    pppoe_password = db.Column(db.String(128), nullable=True)
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        server_default=func.now(),
+    )
 
     subscriptions = db.relationship(
         "Subscription",
@@ -131,13 +176,29 @@ class Customer(db.Model):
     )
 
     def __repr__(self) -> str:
-        return f"<Customer id={self.id} phone={self.phone}>"
+        return f"<Customer id={self.id} phone={self.phone} pppoe_username={self.pppoe_username}>"
 
 
 # =========================================================
 # Subscriptions (Customer Entitlement)
 # =========================================================
 class Subscription(db.Model):
+    """
+    A Subscription is the entitlement window for a given service.
+
+    status:
+      - pending: created but not activated
+      - active: within time window and enabled on router
+      - expired: time window ended / disabled on router
+
+    service_type:
+      - hotspot
+      - pppoe
+
+    IMPORTANT (your current design):
+      - Use hotspot_username / pppoe_username as the identities.
+      - router_username is legacy and should be nullable.
+    """
     __tablename__ = "subscriptions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -145,27 +206,52 @@ class Subscription(db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
     package_id = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=False, index=True)
 
+    # hotspot / pppoe
+    service_type = db.Column(
+        db.String(20),
+        nullable=False,
+        default="hotspot",
+        server_default="hotspot",
+        index=True,
+    )
+
+
+    pppoe_username = db.Column(db.String(64), nullable=True, index=True)
+    hotspot_username = db.Column(db.String(64), nullable=True, index=True)
+
     # pending / active / expired
-    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        index=True,
+    )
 
     starts_at = db.Column(db.DateTime, nullable=True, index=True)
     expires_at = db.Column(db.DateTime, nullable=True, index=True)
 
-    # phone as username (or PPPoE username later)
-    router_username = db.Column(db.String(50), nullable=False, index=True)
+    # Legacy column — keep nullable for migrations that made it NOT NULL earlier.
+    # Your updated routes/admin should NOT depend on it.
+    router_username = db.Column(db.String(50), nullable=True, index=True)
 
-    # bind after first login
+    # hotspot: bind after first login; pppoe: usually None
     mac_address = db.Column(db.String(30), nullable=True, index=True)
 
     # last tx that affected this subscription
     last_tx_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=True, index=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        server_default=func.now(),
+        index=True,
+    )
 
     # Relationships
     customer = db.relationship("Customer", back_populates="subscriptions", lazy="joined")
     package = db.relationship("Package", back_populates="subscriptions", lazy="joined")
-
     last_transaction = db.relationship("Transaction", foreign_keys=[last_tx_id], lazy="joined")
 
     # Compatibility alias (do NOT use in query filters; use last_tx_id)
@@ -177,6 +263,12 @@ class Subscription(db.Model):
     def transaction_id(self, value: int | None) -> None:
         self.last_tx_id = value
 
+    def identity(self) -> str:
+        """Return the user identity for this subscription (pppoe or hotspot)."""
+        if (self.service_type or "").lower().strip() == "pppoe":
+            return (self.pppoe_username or "").strip()
+        return (self.hotspot_username or "").strip()
+
     def is_active_now(self, now: datetime | None = None) -> bool:
         now = now or datetime.utcnow()
         return (
@@ -187,7 +279,10 @@ class Subscription(db.Model):
         )
 
     def __repr__(self) -> str:
-        return f"<Subscription id={self.id} customer_id={self.customer_id} status={self.status}>"
+        return (
+            f"<Subscription id={self.id} service_type={self.service_type} "
+            f"identity={self.identity()} status={self.status}>"
+        )
 
 
 # =========================================================
@@ -204,7 +299,13 @@ class Transaction(db.Model):
     amount = db.Column(db.Integer, nullable=False)
 
     # pending / success / failed
-    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        index=True,
+    )
 
     checkout_request_id = db.Column(db.String(80), unique=True, nullable=True, index=True)
     merchant_request_id = db.Column(db.String(80), nullable=True, index=True)
@@ -215,7 +316,13 @@ class Transaction(db.Model):
 
     raw_callback_json = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        index=True,
+        default=datetime.utcnow,
+        server_default=func.now(),
+    )
 
     customer = db.relationship("Customer", back_populates="transactions", lazy="joined")
     package = db.relationship("Package", back_populates="transactions", lazy="joined")
