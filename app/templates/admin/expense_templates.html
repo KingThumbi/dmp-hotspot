@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block title %}Expense Templates{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px 0;">Expense Templates</h2>
+
+  <div class="card" style="margin-bottom:12px;">
+    <form method="post" action="{{ url_for('admin.expense_templates_create') }}" class="row" style="gap:10px; align-items:end; flex-wrap:wrap;">
+      <div style="min-width:240px; flex:1;">
+        <label class="muted">Template Name</label>
+        <input class="input" name="name" placeholder="e.g. KPLC Bill / Office Rent" required />
+      </div>
+
+      <div style="min-width:240px;">
+        <label class="muted">Category</label>
+        <select class="input" name="category_id" required>
+          <option value="">— Select —</option>
+          {% for c in categories %}
+            <option value="{{ c.id }}">
+              {% if c.parent %}{{ c.parent.name }} → {% endif %}{{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="min-width:160px;">
+        <label class="muted">Default Amount (KES)</label>
+        <input class="input" name="default_amount" placeholder="optional" />
+      </div>
+
+      <div style="min-width:260px; flex:1;">
+        <label class="muted">Notes</label>
+        <input class="input" name="notes" placeholder="optional notes" />
+      </div>
+
+      <div>
+        <button class="btn primary" type="submit">Add Template</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Category</th>
+          <th>Name</th>
+          <th>Default</th>
+          <th>Active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in templates %}
+        <tr>
+          <td>{{ t.id }}</td>
+          <td>
+            {% if t.category.parent %}{{ t.category.parent.name }} → {% endif %}{{ t.category.name }}
+          </td>
+          <td>{{ t.name }}</td>
+          <td>{{ t.default_amount if t.default_amount is not none else "-" }}</td>
+          <td>{{ "Yes" if t.is_active else "No" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

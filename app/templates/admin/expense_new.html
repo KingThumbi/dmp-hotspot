@@ -1,0 +1,80 @@
+{% extends "admin/base.html" %}
+{% block title %}Add Expense{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px 0;">Record Expense</h2>
+
+  <div class="card">
+    <form method="post" action="{{ url_for('admin.expense_create') }}" class="row" style="gap:10px; flex-wrap:wrap; align-items:end;">
+
+      <div style="min-width:260px; flex:1;">
+        <label class="muted">Template (optional)</label>
+        <select class="input" name="template_id" id="template_id">
+          <option value="">— None —</option>
+          {% for t in templates %}
+            <option value="{{ t.id }}" data-category="{{ t.category_id }}" data-amount="{{ t.default_amount or '' }}">
+              {{ t.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="min-width:240px;">
+        <label class="muted">Category (optional)</label>
+        <select class="input" name="category_id" id="category_id">
+          <option value="">— None —</option>
+          {% for c in categories %}
+            <option value="{{ c.id }}">
+              {% if c.parent %}{{ c.parent.name }} → {% endif %}{{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="min-width:160px;">
+        <label class="muted">Amount (KES)</label>
+        <input class="input" name="amount" id="amount" required />
+      </div>
+
+      <div style="min-width:280px; flex:1;">
+        <label class="muted">Description</label>
+        <input class="input" name="description" placeholder="optional details" />
+      </div>
+
+      <div style="min-width:260px;">
+        <label class="muted">Asset (optional)</label>
+        <select class="input" name="asset_id">
+          <option value="">— None —</option>
+          {% for a in assets %}
+            <option value="{{ a.id }}">{{ a.asset_type }} | {{ a.brand or '' }} {{ a.model or '' }} | {{ a.serial_number or ('#' ~ a.id) }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="min-width:220px;">
+        <label class="muted">Incurred At (optional)</label>
+        <input class="input" type="datetime-local" name="incurred_at" />
+      </div>
+
+      <div>
+        <button class="btn primary" type="submit">Save Expense</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // If a template is picked, auto-fill category + amount (if default exists)
+    const tpl = document.getElementById("template_id");
+    const cat = document.getElementById("category_id");
+    const amt = document.getElementById("amount");
+
+    tpl?.addEventListener("change", () => {
+      const opt = tpl.options[tpl.selectedIndex];
+      const categoryId = opt?.dataset?.category || "";
+      const defaultAmount = opt?.dataset?.amount || "";
+
+      if (categoryId) cat.value = categoryId;
+      if (defaultAmount) amt.value = defaultAmount;
+    });
+  </script>
+{% endblock %}

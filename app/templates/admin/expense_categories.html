@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block title %}Expense Categories{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px 0;">Expense Categories</h2>
+
+  <div class="card" style="margin-bottom:12px;">
+    <form method="post" action="{{ url_for('admin.expense_categories_create') }}" class="row" style="gap:10px; align-items:end; flex-wrap:wrap;">
+      <div style="min-width:220px; flex:1;">
+        <label class="muted">Name</label>
+        <input class="input" name="name" placeholder="e.g. Utilities / KPLC / Rent" required />
+      </div>
+
+      <div style="min-width:220px;">
+        <label class="muted">Parent (optional)</label>
+        <select class="input" name="parent_id">
+          <option value="">— None (root) —</option>
+          {% for c in categories %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <button class="btn primary" type="submit">Add Category</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Parent</th>
+          <th>Active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in categories %}
+        <tr>
+          <td>{{ c.id }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.parent.name if c.parent else "-" }}</td>
+          <td>{{ "Yes" if c.is_active else "No" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,0 +1,217 @@
+{# templates/admin/dashboard_finance.html #}
+{% extends "admin/base.html" %}
+
+{% block title %}Finance Dashboard{% endblock %}
+
+{% block content %}
+
+  <div class="row" style="align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;">
+    <div>
+      <h2 style="margin:0;">Finance Dashboard</h2>
+
+      <div class="muted" style="margin-top:4px; font-size:12px;">
+        As of {{ now_eat.strftime("%Y-%m-%d %H:%M:%S") }} (EAT) · DB time is UTC
+      </div>
+
+      {% if this_month and this_month.start_eat and this_month.end_eat_inclusive %}
+        <div class="muted" style="margin-top:2px; font-size:12px;">
+          Current window: {{ this_month.start_eat.strftime("%Y-%m-%d") }} → {{ this_month.end_eat_inclusive.strftime("%Y-%m-%d") }} (EAT)
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+      <a class="btnlink" href="{{ url_for('admin.dashboard') }}">Back to Dashboard</a>
+      <a class="btnlink" href="{{ url_for('admin.transactions') }}">Transactions</a>
+      <a class="btnlink" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
+    </div>
+  </div>
+
+  <!-- Date range selector + presets + CSV export -->
+  <div class="card" style="margin-bottom:12px;">
+    <div class="row" style="justify-content:space-between; gap:12px; align-items:flex-end;">
+      <div style="flex:1; min-width:260px;">
+        <div class="muted" style="font-size:12px; font-weight:900; margin-bottom:6px;">Quick presets</div>
+        <div class="row" style="gap:8px; flex-wrap:wrap;">
+          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='today') }}">Today</a>
+          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='week') }}">This Week</a>
+          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='month') }}">This Month</a>
+          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_month') }}">Last Month</a>
+          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_30') }}">Last 30 Days</a>
+        </div>
+      </div>
+
+      <form method="get" action="{{ url_for('admin.dashboard_finance') }}" class="row" style="gap:10px; align-items:flex-end;">
+        <div>
+          <div class="muted" style="font-size:12px; font-weight:800;">Start</div>
+          <input type="date" name="start" value="{{ start_str }}" />
+        </div>
+
+        <div>
+          <div class="muted" style="font-size:12px; font-weight:800;">End</div>
+          <input type="date" name="end" value="{{ end_str }}" />
+        </div>
+
+        <div>
+          <button type="submit">Apply</button>
+        </div>
+      </form>
+
+      <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <a class="btnlink"
+           href="{{ url_for('admin.dashboard_finance_csv', start=start_str, end=end_str) }}">
+          Download CSV
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# =========================
+     Cards: This period
+     ========================= #}
+  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Income (Selected Period)</div>
+      <div style="font-size:22px; font-weight:800;">
+        KES {{ this_month.income_kes if this_month else 0 }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Successful payments only
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Expenses (Selected Period)</div>
+      <div style="font-size:22px; font-weight:800;">
+        KES {{ this_month.expenses_kes if this_month else 0 }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Incurred date preferred (fallback recorded date)
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Profit (Selected Period)</div>
+      {% set profit = (this_month.profit_kes if this_month else 0) %}
+      <div style="font-size:22px; font-weight:900;">
+        KES {{ profit }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Income − Expenses
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Profit (Last Month)</div>
+      {% set last_profit = (last_month.profit_kes if last_month else 0) %}
+      <div style="font-size:22px; font-weight:900;">
+        KES {{ last_profit }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Quick trend check
+      </div>
+    </div>
+  </div>
+
+  {# =========================
+     Expense Breakdown
+     ========================= #}
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+      <div>
+        <div style="font-weight:800; font-size:16px;">Expense Breakdown (Selected Period)</div>
+        <div class="muted" style="font-size:12px; margin-top:2px;">
+          Grouped by category (FK preferred; legacy text fallback)
+        </div>
+      </div>
+
+      {% set total_exp = (this_month.expenses_kes if this_month else 0) %}
+      <div class="muted" style="font-size:12px;">
+        Total: <span style="font-weight:800;">KES {{ total_exp }}</span>
+      </div>
+    </div>
+
+    <div style="overflow:auto; margin-top:10px;">
+      <table class="table" style="width:100%;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Category</th>
+            <th style="text-align:right;">Total (KES)</th>
+            <th style="text-align:right;">Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if breakdown and breakdown|length > 0 %}
+            {% for row in breakdown %}
+              {% set share = 0 %}
+              {% if total_exp and total_exp > 0 %}
+                {% set share = (row.total_kes * 100.0) / total_exp %}
+              {% endif %}
+              <tr>
+                <td style="text-align:left;">{{ row.category_name }}</td>
+                <td style="text-align:right;">{{ row.total_kes }}</td>
+                <td style="text-align:right;">
+                  {{ "%.1f"|format(share) }}%
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="3" class="muted" style="padding:12px;">
+                No expenses recorded for this period.
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# =========================
+     Monthly Summary (Last 6)
+     ========================= #}
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+      <div>
+        <div style="font-weight:800; font-size:16px;">Monthly Summary (Last 6 Months)</div>
+        <div class="muted" style="font-size:12px; margin-top:2px;">
+          Aggregated by UTC month bounds; displayed in EAT
+        </div>
+      </div>
+    </div>
+
+    <div style="overflow:auto; margin-top:10px;">
+      <table class="table" style="width:100%;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Month</th>
+            <th style="text-align:right;">Income (KES)</th>
+            <th style="text-align:right;">Expenses (KES)</th>
+            <th style="text-align:right;">Profit (KES)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if summary and summary|length > 0 %}
+            {% for mrow in summary %}
+              <tr>
+                <td style="text-align:left;">
+                  {{ "%04d-%02d"|format(mrow.year, mrow.month) }}
+                </td>
+                <td style="text-align:right;">{{ mrow.income_kes }}</td>
+                <td style="text-align:right;">{{ mrow.expenses_kes }}</td>
+                <td style="text-align:right; font-weight:800;">{{ mrow.profit_kes }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="4" class="muted" style="padding:12px;">
+                No monthly data available yet.
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% endblock %}
