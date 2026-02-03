@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Create User{% endblock %}
+{% block page_title %}Create System User{% endblock %}
+{% block page_subtitle %}
+Add a new admin, finance, ops, or support user.
+{% endblock %}
+
+{% block content %}
+
+<form method="post" class="card" style="max-width:520px;">
+
+  <div style="display:grid; gap:12px;">
+
+    <div>
+      <label class="muted small">Full name (optional)</label>
+      <input
+        type="text"
+        name="name"
+        class="input"
+        placeholder="Jane Doe"
+        style="width:100%; padding:10px;"
+      />
+    </div>
+
+    <div>
+      <label class="muted small">Email *</label>
+      <input
+        type="email"
+        name="email"
+        required
+        class="input"
+        placeholder="user@dmpolinconnect.co.ke"
+        style="width:100%; padding:10px;"
+      />
+    </div>
+
+    <div>
+      <label class="muted small">Role *</label>
+      <select
+        name="role"
+        required
+        class="input"
+        style="width:100%; padding:10px;"
+      >
+        <option value="support">Support</option>
+        <option value="ops">Operations</option>
+        <option value="finance">Finance</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="muted small">Initial password *</label>
+      <input
+        type="password"
+        name="password"
+        required
+        class="input"
+        placeholder="Minimum 12 characters"
+        style="width:100%; padding:10px;"
+      />
+      <div class="muted small" style="margin-top:6px;">
+        Must include uppercase, lowercase, number, and symbol.
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button type="submit" class="btnlink">Create User</button>
+      <a href="{{ url_for('admin.users_list') }}" class="btnlink secondary">Cancel</a>
+    </div>
+
+  </div>
+</form>
+
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "admin/base.html" %}
+
+{% block title %}System Users{% endblock %}
+{% block page_title %}System Users{% endblock %}
+{% block page_subtitle %}
+Manage admin, finance, ops, and support users.
+{% endblock %}
+
+{% block header_right %}
+  <a class="btnlink" href="{{ url_for('admin.users_new') }}">+ New User</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <table style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr class="muted small">
+        <th style="text-align:left; padding:10px;">Name</th>
+        <th style="text-align:left; padding:10px;">Email</th>
+        <th style="text-align:left; padding:10px;">Role</th>
+        <th style="text-align:left; padding:10px;">Status</th>
+        <th style="text-align:left; padding:10px;">Created</th>
+        <th style="text-align:left; padding:10px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr style="border-top:1px solid rgba(255,255,255,.08);">
+          <td style="padding:10px;">
+            {{ u.name or "—" }}
+            {% if u.is_superadmin %}
+              <span class="badge">superadmin</span>
+            {% endif %}
+          </td>
+
+          <td style="padding:10px;">{{ u.email }}</td>
+
+          <td style="padding:10px;">
+            <span class="badge">{{ (u.role or "admin")|lower }}</span>
+          </td>
+
+          <td style="padding:10px;">
+            {% if u.is_active %}
+              <span class="badge">active</span>
+            {% else %}
+              <span class="badge muted">disabled</span>
+            {% endif %}
+          </td>
+
+          <td style="padding:10px;">
+            {{ u.created_at.strftime("%Y-%m-%d") }}
+          </td>
+
+          <td style="padding:10px;">
+            {% if current_user.id != u.id %}
+              <form
+                method="post"
+                action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
+                style="display:inline;"
+              >
+                <button
+                  class="btnlink secondary"
+                  onclick="return confirm('Are you sure?')"
+                >
+                  {% if u.is_active %}Disable{% else %}Enable{% endif %}
+                </button>
+              </form>
+            {% else %}
+              <span class="muted small">You</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="padding:14px;">
+            No users found.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

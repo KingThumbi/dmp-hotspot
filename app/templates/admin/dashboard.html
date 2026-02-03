@@ -16,14 +16,59 @@
     <div class="card">
       <div class="muted">Transactions</div>
       <div class="row" style="margin-top:8px;">
-        <span class="pill">Pending: {{ pending_tx }}</span>
-        <span class="pill">Success: {{ success_tx }}</span>
-        <span class="pill">Failed: {{ failed_tx }}</span>
+        <span class="pill pending">Pending: {{ pending_tx }}</span>
+        <span class="pill success">Success: {{ success_tx }}</span>
+        <span class="pill failed">Failed: {{ failed_tx }}</span>
       </div>
     </div>
   </div>
 
   <div style="height: 14px;"></div>
+
+  <!-- =========================================================
+       Finance Summary (This Month)
+       ========================================================= -->
+  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Income (This Month)</div>
+      <div style="font-size:22px; font-weight:900;">
+        KES {{ finance.income_kes if finance else 0 }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Successful payments only
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Expenses (This Month)</div>
+      <div style="font-size:22px; font-weight:900;">
+        KES {{ finance.expenses_kes if finance else 0 }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Incurred date preferred
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Profit (This Month)</div>
+      <div style="font-size:22px; font-weight:900;">
+        KES {{ finance.profit_kes if finance else 0 }}
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">
+        Income − Expenses
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:220px;">
+      <div class="muted" style="font-size:12px;">Finance</div>
+      <div style="margin-top:8px;">
+        <a class="btnlink" href="{{ url_for('admin.dashboard_finance') }}">Open Finance →</a>
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:8px;">
+        Breakdown + CSV export
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="row" style="justify-content:space-between;">
@@ -45,7 +90,7 @@
         {% for t in recent %}
           <tr>
             <td class="muted">{{ t.created_at }}</td>
-            <td><span class="pill">{{ t.status }}</span></td>
+            <td><span class="pill {{ t.status }}">{{ t.status }}</span></td>
             <td>{{ t.customer.phone if t.customer else "-" }}</td>
             <td>{{ t.amount }}</td>
             <td>{{ t.mpesa_receipt or "-" }}</td>

@@ -1,6 +1,8 @@
 # app/admin.py
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 import secrets
@@ -11,6 +13,7 @@ from zoneinfo import ZoneInfo
 import sqlalchemy as sa
 from flask import (
     Blueprint,
+    Response,
     abort,
     current_app,
     flash,
@@ -24,27 +27,97 @@ from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
+from .authz import roles_required
 from .extensions import db, limiter, login_manager
-from .models import AdminAuditLog, AdminUser, Customer, Package, Subscription, Transaction
+from .models import (
+    AdminAuditLog,
+    AdminUser,
+    Asset,
+    Customer,
+    Expense,
+    ExpenseCategory,
+    ExpenseTemplate,
+    Package,
+    Subscription,
+    Transaction,
+)
 from .router_agent import agent_enable
+from .services.finance_reports import (
+    expense_breakdown_by_category_range,
+    last_n_months_summary,
+    profit_snapshot_range,
+)
 
 admin = Blueprint("admin", __name__, template_folder="templates")
+
 NAIROBI = ZoneInfo("Africa/Nairobi")
 
 
 # =========================================================
-# Time helpers
+# Time helpers (DB stores naive UTC; UI displays EAT)
 # =========================================================
 def utcnow_naive() -> datetime:
-    """DB stores naive UTC (datetime.utcnow). Keep consistent."""
     return datetime.utcnow()
 
 
 def to_nairobi(dt_utc_naive: datetime | None) -> datetime | None:
-    """Convert naive-UTC datetime from DB to aware Nairobi time for display."""
     if not dt_utc_naive:
         return None
     return dt_utc_naive.replace(tzinfo=timezone.utc).astimezone(NAIROBI)
+
+
+def _month_range_utc_naive(now_utc_naive: datetime) -> tuple[datetime, datetime]:
+    start = datetime(now_utc_naive.year, now_utc_naive.month, 1)
+    if now_utc_naive.month == 12:
+        end = datetime(now_utc_naive.year + 1, 1, 1)
+    else:
+        end = datetime(now_utc_naive.year, now_utc_naive.month + 1, 1)
+    return start, end
+
+
+def _parse_date_range_args() -> tuple[datetime, datetime, str, str]:
+    """
+    Reads ?start=YYYY-MM-DD&end=YYYY-MM-DD from query string.
+    Returns (start_utc_naive, end_utc_naive_exclusive, start_str, end_str)
+
+    - DB uses naive UTC.
+    - end is made EXCLUSIVE by adding 1 day at 00:00.
+    - Default: current month [start, end).
+    """
+    now = utcnow_naive()
+    default_start, default_end = _month_range_utc_naive(now)
+
+    start_str = (request.args.get("start") or "").strip()
+    end_str = (request.args.get("end") or "").strip()
+
+    start = default_start
+    end_excl = default_end
+
+    if start_str:
+        try:
+            start = datetime.fromisoformat(start_str)  # YYYY-MM-DD
+        except ValueError:
+            start = default_start
+
+    if end_str:
+        try:
+            end_inclusive = datetime.fromisoformat(end_str)
+            end_excl = end_inclusive + timedelta(days=1)
+        except ValueError:
+            end_excl = default_end
+
+    if end_excl <= start:
+        start = default_start
+        end_excl = default_end
+        start_str = ""
+        end_str = ""
+
+    if not start_str:
+        start_str = start.strftime("%Y-%m-%d")
+    if not end_str:
+        end_str = (end_excl - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return start, end_excl, start_str, end_str
 
 
 # =========================================================
@@ -74,7 +147,7 @@ def normalize_phone(phone: str) -> str:
 
 
 # =========================================================
-# Subscription identity helpers (NEW SCHEMA)
+# Subscription identity helpers
 # =========================================================
 def sub_identity(s: Subscription) -> str:
     """
@@ -89,10 +162,6 @@ def sub_identity(s: Subscription) -> str:
 
 
 def sub_identity_for_router(s: Subscription) -> str:
-    """
-    Router identity uses split columns.
-    NEVER depends on legacy router_username.
-    """
     return sub_identity(s)
 
 
@@ -129,9 +198,7 @@ def _parse_pppoe_username(u: str) -> tuple[int, int] | None:
 
 
 def _format_pppoe_username(series: int, n: int) -> str:
-    if series == 0:
-        return f"D{n:03d}"
-    return f"DA{n:04d}"
+    return f"D{n:03d}" if series == 0 else f"DA{n:04d}"
 
 
 def _next_pppoe_username() -> str:
@@ -144,35 +211,39 @@ def _next_pppoe_username() -> str:
 
     # Customer.pppoe_username (if model has it)
     try:
-        rows = db.session.query(Customer.pppoe_username).filter(Customer.pppoe_username.isnot(None)).all()
+        rows = (
+            db.session.query(Customer.pppoe_username)
+            .filter(Customer.pppoe_username.isnot(None))
+            .all()
+        )
         existing.update((r[0] or "").strip().upper() for r in rows)
     except Exception:
         pass
 
     # Subscription.pppoe_username
-    rows2 = db.session.query(Subscription.pppoe_username).filter(Subscription.pppoe_username.isnot(None)).all()
+    rows2 = (
+        db.session.query(Subscription.pppoe_username)
+        .filter(Subscription.pppoe_username.isnot(None))
+        .all()
+    )
     existing.update((r[0] or "").strip().upper() for r in rows2)
 
     best_series = -1
     best_n = 0
-
     for u in existing:
         parsed = _parse_pppoe_username(u)
         if not parsed:
             continue
-        s, n = parsed
-        if s > best_series or (s == best_series and n > best_n):
-            best_series, best_n = s, n
+        series, n = parsed
+        if series > best_series or (series == best_series and n > best_n):
+            best_series, best_n = series, n
 
     if best_series == -1:
         return "D001"
-
     if best_series == 0 and best_n < 999:
         return _format_pppoe_username(0, best_n + 1)
-
     if best_series == 0 and best_n >= 999:
         return _format_pppoe_username(1, 1)
-
     return _format_pppoe_username(1, best_n + 1)
 
 
@@ -361,9 +432,10 @@ def login_post():
         return redirect(url_for("admin.login_get"))
 
     login_user(user)
-    audit("login_success")
+    audit("login_success", {"email": email, "role": getattr(user, "role", None), "super": getattr(user, "is_superadmin", None)})
     flash("Welcome back.", "success")
 
+    # Only allow relative paths
     if next_url.startswith("/"):
         return redirect(next_url)
 
@@ -395,6 +467,11 @@ def dashboard():
 
     recent = Transaction.query.order_by(Transaction.created_at.desc()).limit(10).all()
 
+    # Finance snapshot: current UTC month using range helper (avoid missing imports)
+    now_utc_naive = utcnow_naive()
+    start_utc, end_utc = _month_range_utc_naive(now_utc_naive)
+    finance = profit_snapshot_range(start_utc, end_utc) or {"income_kes": 0, "expenses_kes": 0, "profit_kes": 0}
+
     return render_template(
         "admin/dashboard.html",
         customers_count=customers_count,
@@ -403,14 +480,122 @@ def dashboard():
         success_tx=success_tx,
         failed_tx=failed_tx,
         recent=recent,
+        finance=finance,
     )
 
 
 # =========================================================
-# Customers
+# Finance Dashboard (Phase D working)
+# =========================================================
+@admin.route("/dashboard/finance", methods=["GET"])
+@roles_required("finance", "admin")
+def dashboard_finance():
+    """
+    Finance dashboard supports:
+      - preset ranges via ?preset=today|week|month|last_month|last_30
+      - custom ranges via ?start=YYYY-MM-DD&end=YYYY-MM-DD
+    DB stores naive UTC; UI displays EAT (Africa/Nairobi).
+    """
+    preset = (request.args.get("preset") or "").strip().lower()
+
+    if preset in {"today", "week", "month", "last_month", "last_30"}:
+        now_local = datetime.now(NAIROBI)
+        start_today_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if preset == "today":
+            start_local = start_today_local
+            end_local_excl = start_local + timedelta(days=1)
+
+        elif preset == "week":
+            start_local = start_today_local - timedelta(days=start_today_local.weekday())
+            end_local_excl = start_local + timedelta(days=7)
+
+        elif preset == "month":
+            start_local = start_today_local.replace(day=1)
+            if start_local.month == 12:
+                end_local_excl = start_local.replace(year=start_local.year + 1, month=1, day=1)
+            else:
+                end_local_excl = start_local.replace(month=start_local.month + 1, day=1)
+
+        elif preset == "last_month":
+            first_this_month = start_today_local.replace(day=1)
+            if first_this_month.month == 1:
+                start_local = first_this_month.replace(year=first_this_month.year - 1, month=12, day=1)
+            else:
+                start_local = first_this_month.replace(month=first_this_month.month - 1, day=1)
+            end_local_excl = first_this_month
+
+        else:  # last_30
+            start_local = start_today_local - timedelta(days=29)
+            end_local_excl = start_today_local + timedelta(days=1)
+
+        start = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+        end = end_local_excl.astimezone(timezone.utc).replace(tzinfo=None)
+
+        start_str = start_local.strftime("%Y-%m-%d")
+        end_str = (end_local_excl - timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        start, end, start_str, end_str = _parse_date_range_args()
+
+    this_period = profit_snapshot_range(start, end)
+    breakdown = expense_breakdown_by_category_range(start, end)
+    summary = last_n_months_summary(6)
+
+    this_period["start_eat"] = to_nairobi(this_period["start_utc"])
+    this_period["end_eat_inclusive"] = to_nairobi(this_period["end_utc"] - timedelta(seconds=1))
+
+    return render_template(
+        "admin/dashboard_finance.html",
+        this_month=this_period,  # keep template variable name unchanged
+        last_month=None,
+        breakdown=breakdown,
+        summary=summary,
+        now_eat=to_nairobi(utcnow_naive()),
+        start_str=start_str,
+        end_str=end_str,
+    )
+
+
+@admin.get("/dashboard/finance.csv")
+@roles_required("finance", "admin")
+def dashboard_finance_csv():
+    start, end, start_str, end_str = _parse_date_range_args()
+
+    snap = profit_snapshot_range(start, end)
+    breakdown = expense_breakdown_by_category_range(start, end)
+
+    output = io.StringIO()
+    w = csv.writer(output)
+
+    w.writerow(["Dmpolin Connect - Finance Export"])
+    w.writerow(["Start (UTC)", start_str])
+    w.writerow(["End (UTC)", end_str])
+    w.writerow([])
+
+    w.writerow(["Snapshot"])
+    w.writerow(["Income (KES)", snap.get("income_kes", 0)])
+    w.writerow(["Expenses (KES)", snap.get("expenses_kes", 0)])
+    w.writerow(["Profit (KES)", snap.get("profit_kes", 0)])
+    w.writerow([])
+
+    w.writerow(["Expense Breakdown (KES)"])
+    w.writerow(["Category", "Total (KES)"])
+    for row in (breakdown or []):
+        w.writerow([row.get("category_name"), row.get("total_kes", 0)])
+
+    filename = f"finance_{start_str}_to_{end_str}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# =========================================================
+# Customers (Support/Admin)
 # =========================================================
 @admin.get("/customers")
-@login_required
+@roles_required("support", "admin")
 def customers():
     q = (request.args.get("q") or "").strip()
 
@@ -443,38 +628,27 @@ def customers():
 
 
 @admin.get("/customers/<int:customer_id>")
-@login_required
+@roles_required("support", "admin")
 def customer_detail(customer_id: int):
     customer = db.session.get(Customer, customer_id)
     if not customer:
         flash("Customer not found.", "error")
         return redirect(url_for("admin.customers"))
 
-    subs = (
-        Subscription.query.filter_by(customer_id=customer_id)
-        .order_by(Subscription.created_at.desc())
-        .all()
-    )
-
-    txs = (
-        Transaction.query.filter_by(customer_id=customer_id)
-        .order_by(Transaction.created_at.desc())
-        .limit(200)
-        .all()
-    )
+    subs = Subscription.query.filter_by(customer_id=customer_id).order_by(Subscription.created_at.desc()).all()
+    txs = Transaction.query.filter_by(customer_id=customer_id).order_by(Transaction.created_at.desc()).limit(200).all()
 
     return render_template("admin/customer_detail.html", customer=customer, subs=subs, txs=txs)
 
 
 # =========================================================
-# PPPoE admin creation
+# PPPoE admin creation (Ops/Admin)
 # =========================================================
 @admin.get("/pppoe/new")
-@login_required
+@roles_required("ops", "admin")
 def pppoe_new():
     pppoe_packages = (
-        Package.query
-        .filter(Package.code.like("pppoe_%"))
+        Package.query.filter(Package.code.like("pppoe_%"))
         .order_by(Package.price_kes.asc())
         .all()
     )
@@ -486,7 +660,7 @@ def pppoe_new():
 
 
 @admin.post("/pppoe/create")
-@login_required
+@roles_required("ops", "admin")
 @limiter.limit("20 per minute")
 def pppoe_create():
     phone_raw = (request.form.get("phone") or "").strip()
@@ -521,7 +695,6 @@ def pppoe_create():
         flash("Months must be between 1 and 36.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
-    # allocate username if blank
     if not pppoe_username:
         pppoe_username = _next_pppoe_username()
 
@@ -529,14 +702,12 @@ def pppoe_create():
         flash("Invalid PPPoE username format. Use D001..D999 or DA0001..", "error")
         return redirect(url_for("admin.pppoe_new"))
 
-    # customer
     customer = Customer.query.filter_by(phone=phone).first()
     if not customer:
         customer = Customer(phone=phone)
         db.session.add(customer)
         db.session.flush()
 
-    # prevent duplicate active PPPoE username
     exists_active = (
         Subscription.query.filter(
             Subscription.service_type == "pppoe",
@@ -549,34 +720,23 @@ def pppoe_create():
         flash(f"PPPoE username {pppoe_username} already has an ACTIVE subscription.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
-    # Optionally save credentials on customer
     if set_customer_pppoe:
         if hasattr(customer, "pppoe_username"):
             if getattr(customer, "pppoe_username", None) and customer.pppoe_username != pppoe_username:
-                flash(
-                    f"Customer already has PPPoE username {customer.pppoe_username}. Not overwritten.",
-                    "warning",
-                )
+                flash(f"Customer already has PPPoE username {customer.pppoe_username}. Not overwritten.", "warning")
             else:
                 customer.pppoe_username = pppoe_username
 
-        if hasattr(customer, "pppoe_password"):
-            if not getattr(customer, "pppoe_password", None):
-                customer.pppoe_password = _gen_pppoe_password()
+        if hasattr(customer, "pppoe_password") and not getattr(customer, "pppoe_password", None):
+            customer.pppoe_password = _gen_pppoe_password()
 
     now = utcnow_naive()
 
-    # Duration logic:
-    # - Package duration_minutes represents 30 days (43200) for PPPoE.
-    # - Multiply by months.
     duration_minutes = int(package.duration_minutes or 0)
     if duration_minutes <= 0:
-        # fallback: 30 days
-        duration_minutes = 43200
-
+        duration_minutes = 43200  # 30 days fallback
     expires_at = now + timedelta(minutes=duration_minutes * months)
 
-    # Create subscription (ACTIVE)
     sub = Subscription(
         customer_id=customer.id,
         package_id=package.id,
@@ -586,18 +746,16 @@ def pppoe_create():
         expires_at=expires_at,
         pppoe_username=pppoe_username,
         hotspot_username=None,
-        router_username=None,  # legacy; don't use going forward
+        router_username=None,  # legacy; do not use
     )
     db.session.add(sub)
     db.session.flush()
 
-    # Create an admin audit transaction row (recommended)
-    # This keeps your reporting consistent even though it's not M-Pesa.
     tx = Transaction(
         customer_id=customer.id,
         package_id=package.id,
         amount=int(package.price_kes or 0),
-        status="success",  # treat as successful provisioning payment (admin action)
+        status="success",
         checkout_request_id=None,
         merchant_request_id=None,
         mpesa_receipt=None,
@@ -609,11 +767,7 @@ def pppoe_create():
     db.session.flush()
 
     sub.last_tx_id = tx.id
-    db.session.add(sub)
 
-    router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
-
-    # Commit subscription + tx first (DB is source of truth)
     try:
         db.session.commit()
     except IntegrityError:
@@ -625,7 +779,8 @@ def pppoe_create():
         flash(f"Failed to create PPPoE subscription: {e}", "error")
         return redirect(url_for("admin.pppoe_new"))
 
-    # Optional router provisioning (do NOT rollback DB changes)
+    router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
+
     if enable_now:
         if not router_enabled:
             flash("Router automation is OFF (ROUTER_AGENT_ENABLED=false). Subscription created in DB only.", "warning")
@@ -641,10 +796,7 @@ def pppoe_create():
                 flash("PPPoE provisioned/enabled on router.", "success")
             except Exception as e:
                 flash(f"Router provisioning failed: {e}", "error")
-                audit(
-                    "pppoe_router_provision_failed",
-                    {"sub_id": sub.id, "pppoe_username": pppoe_username, "error": str(e)},
-                )
+                audit("pppoe_router_provision_failed", {"sub_id": sub.id, "pppoe_username": pppoe_username, "error": str(e)})
 
     audit(
         "pppoe_subscription_created",
@@ -666,10 +818,10 @@ def pppoe_create():
 
 
 # =========================================================
-# Subscriptions
+# Subscriptions (Ops/Support/Admin)
 # =========================================================
 @admin.get("/subscriptions")
-@login_required
+@roles_required("ops", "support", "admin")
 def subscriptions():
     status = (request.args.get("status") or "").strip().lower()
     svc = (request.args.get("svc") or "").strip().lower()
@@ -715,16 +867,13 @@ def subscriptions():
             days = hrs // 24
             hrs = hrs % 24
             return f"{days}d {hrs}h {mins}m"
-
         return f"{hrs}h {mins}m"
 
     items = []
     for s in rows:
         remaining = fmt_remaining(s.expires_at)
         is_expired = (s.expires_at is not None and s.expires_at <= now) or s.status == "expired"
-        items.append(
-            {"s": s, "remaining": remaining, "is_expired": is_expired, "identity": sub_identity(s)}
-        )
+        items.append({"s": s, "remaining": remaining, "is_expired": is_expired, "identity": sub_identity(s)})
 
     pkg_codes = [p.code for p in Package.query.order_by(Package.price_kes.asc()).all()]
 
@@ -740,7 +889,7 @@ def subscriptions():
 
 
 @admin.post("/subscriptions/<int:sub_id>/enable")
-@login_required
+@roles_required("ops", "admin")
 @limiter.limit("20 per minute")
 def subscription_enable(sub_id: int):
     sub = db.session.get(Subscription, sub_id)
@@ -779,21 +928,9 @@ def subscription_enable(sub_id: int):
         svc = (sub.service_type or "hotspot").lower().strip()
 
         if svc == "pppoe":
-            agent_enable(
-                current_app,
-                username,
-                sub.package.mikrotik_profile,
-                0,
-                comment="Enabled by admin",
-            )
+            agent_enable(current_app, username, sub.package.mikrotik_profile, 0, comment="Enabled by admin")
         else:
-            agent_enable(
-                current_app,
-                username,
-                sub.package.mikrotik_profile,
-                remaining_minutes,
-                comment="Enabled by admin",
-            )
+            agent_enable(current_app, username, sub.package.mikrotik_profile, remaining_minutes, comment="Enabled by admin")
 
         flash("Router enable command sent.", "success")
         audit(
@@ -823,10 +960,10 @@ def subscription_enable(sub_id: int):
 
 
 # =========================================================
-# Transactions
+# Transactions (Finance/Admin)
 # =========================================================
 @admin.get("/transactions")
-@login_required
+@roles_required("finance", "admin")
 def transactions():
     status = (request.args.get("status") or "").strip().lower()
     query = Transaction.query
@@ -842,7 +979,7 @@ def transactions():
 
 
 @admin.get("/transactions/<int:tx_id>/callback")
-@login_required
+@roles_required("finance", "admin")
 def transaction_callback_json(tx_id: int):
     tx = db.session.get(Transaction, tx_id)
     if not tx:
@@ -856,3 +993,302 @@ def transaction_callback_json(tx_id: int):
             pretty = tx.raw_callback_json
 
     return render_template("admin/transaction_callback.html", tx=tx, pretty_json=pretty)
+
+
+# =========================================================
+# Assets (Ops/Admin) — minimal list endpoint for nav safety
+# =========================================================
+@admin.get("/assets")
+@roles_required("ops", "admin")
+def assets():
+    rows = Asset.query.order_by(Asset.created_at.desc()).limit(300).all()
+    return render_template("admin/assets.html", assets=rows)
+
+
+# =========================================================
+# Phase D.3.2 — Expense Categories (Finance/Admin)
+# =========================================================
+@admin.get("/expense-categories")
+@roles_required("finance", "admin")
+def expense_categories_list():
+    categories = (
+        ExpenseCategory.query
+        .order_by(ExpenseCategory.parent_id.asc().nullsfirst(), ExpenseCategory.name.asc())
+        .all()
+    )
+    return render_template("admin/expense_categories.html", categories=categories)
+
+
+@admin.post("/expense-categories")
+@roles_required("finance", "admin")
+def expense_categories_create():
+    name = (request.form.get("name") or "").strip()
+    parent_id_raw = (request.form.get("parent_id") or "").strip()
+
+    if not name:
+        flash("Category name is required.", "error")
+        return redirect(url_for("admin.expense_categories_list"))
+
+    parent_id = int(parent_id_raw) if parent_id_raw else None
+
+    existing = ExpenseCategory.query.filter_by(parent_id=parent_id, name=name).first()
+    if existing:
+        flash("That category already exists under the selected parent.", "warning")
+        return redirect(url_for("admin.expense_categories_list"))
+
+    c = ExpenseCategory(name=name, parent_id=parent_id, is_active=True)
+    db.session.add(c)
+    db.session.commit()
+
+    flash("Category created.", "success")
+    return redirect(url_for("admin.expense_categories_list"))
+
+
+# =========================================================
+# Phase D.3.2 — Expense Templates (Finance/Admin)
+# =========================================================
+@admin.get("/expense-templates")
+@roles_required("finance", "admin")
+def expense_templates_list():
+    categories = (
+        ExpenseCategory.query
+        .filter(ExpenseCategory.is_active.is_(True))
+        .order_by(ExpenseCategory.parent_id.asc().nullsfirst(), ExpenseCategory.name.asc())
+        .all()
+    )
+
+    templates = (
+        ExpenseTemplate.query
+        .join(ExpenseCategory, ExpenseTemplate.category_id == ExpenseCategory.id)
+        .order_by(ExpenseTemplate.is_active.desc(), ExpenseCategory.name.asc(), ExpenseTemplate.name.asc())
+        .all()
+    )
+
+    return render_template(
+        "admin/expense_templates.html",
+        templates=templates,
+        categories=categories,
+    )
+
+
+@admin.post("/expense-templates")
+@roles_required("finance", "admin")
+def expense_templates_create():
+    name = (request.form.get("name") or "").strip()
+    category_id_raw = (request.form.get("category_id") or "").strip()
+    default_amount_raw = (request.form.get("default_amount") or "").strip()
+    notes = (request.form.get("notes") or "").strip()
+
+    if not name:
+        flash("Template name is required.", "error")
+        return redirect(url_for("admin.expense_templates_list"))
+
+    if not category_id_raw:
+        flash("Please select a category.", "error")
+        return redirect(url_for("admin.expense_templates_list"))
+
+    category_id = int(category_id_raw)
+
+    default_amount = None
+    if default_amount_raw:
+        try:
+            default_amount = int(default_amount_raw)
+        except ValueError:
+            flash("Default amount must be a number.", "error")
+            return redirect(url_for("admin.expense_templates_list"))
+
+    existing = ExpenseTemplate.query.filter_by(category_id=category_id, name=name).first()
+    if existing:
+        flash("That template already exists under this category.", "warning")
+        return redirect(url_for("admin.expense_templates_list"))
+
+    t = ExpenseTemplate(
+        category_id=category_id,
+        name=name,
+        default_amount=default_amount,
+        notes=notes or None,
+        is_active=True,
+    )
+    db.session.add(t)
+    db.session.commit()
+
+    flash("Template created.", "success")
+    return redirect(url_for("admin.expense_templates_list"))
+
+
+# =========================================================
+# Phase D.3.2 — Record Expense (Finance/Admin)
+# =========================================================
+@admin.get("/expenses/new")
+@roles_required("finance", "admin")
+def expense_new():
+    categories = (
+        ExpenseCategory.query
+        .filter(ExpenseCategory.is_active.is_(True))
+        .order_by(ExpenseCategory.parent_id.asc().nullsfirst(), ExpenseCategory.name.asc())
+        .all()
+    )
+
+    templates = (
+        ExpenseTemplate.query
+        .filter(ExpenseTemplate.is_active.is_(True))
+        .order_by(ExpenseTemplate.name.asc())
+        .all()
+    )
+
+    assets_rows = Asset.query.order_by(Asset.id.desc()).limit(200).all()
+
+    return render_template(
+        "admin/expense_new.html",
+        categories=categories,
+        templates=templates,
+        assets=assets_rows,
+    )
+
+
+@admin.post("/expenses/new")
+@roles_required("finance", "admin")
+def expense_create():
+    template_id_raw = (request.form.get("template_id") or "").strip()
+    category_id_raw = (request.form.get("category_id") or "").strip()
+    amount_raw = (request.form.get("amount") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    asset_id_raw = (request.form.get("asset_id") or "").strip()
+    incurred_at_raw = (request.form.get("incurred_at") or "").strip()
+
+    if not amount_raw:
+        flash("Amount is required.", "error")
+        return redirect(url_for("admin.expense_new"))
+
+    try:
+        amount = int(amount_raw)
+    except ValueError:
+        flash("Amount must be a number.", "error")
+        return redirect(url_for("admin.expense_new"))
+
+    # HTML datetime-local => "YYYY-MM-DDTHH:MM"
+    if incurred_at_raw:
+        try:
+            incurred_at = datetime.fromisoformat(incurred_at_raw)
+        except ValueError:
+            flash("Invalid incurred date/time.", "error")
+            return redirect(url_for("admin.expense_new"))
+    else:
+        incurred_at = utcnow_naive()
+
+    template_id = int(template_id_raw) if template_id_raw else None
+    category_id = int(category_id_raw) if category_id_raw else None
+    asset_id = int(asset_id_raw) if asset_id_raw else None
+
+    legacy_category = "other"
+    if category_id:
+        c = db.session.get(ExpenseCategory, category_id)
+        if c:
+            legacy_category = c.name
+
+    e = Expense(
+        category=legacy_category,  # legacy not-null column
+        category_id=category_id,
+        template_id=template_id,
+        amount=amount,
+        description=description or None,
+        asset_id=asset_id,
+        incurred_at=incurred_at,
+        recorded_by_admin=getattr(current_user, "id", None),
+    )
+    db.session.add(e)
+    db.session.commit()
+
+    audit("expense_recorded", {"expense_id": e.id, "amount": amount, "category_id": category_id, "template_id": template_id})
+    flash("Expense recorded.", "success")
+    return redirect(url_for("admin.expense_new"))
+
+# =========================================================
+# Phase E: System Users (Admin-only)
+# =========================================================
+
+@admin.route("/admin/users", methods=["GET"])
+@login_required
+@roles_required("admin")
+def users_list():
+    users = (
+        AdminUser.query
+        .order_by(AdminUser.is_superadmin.desc(), AdminUser.role.asc(), AdminUser.email.asc())
+        .all()
+    )
+    return render_template("admin/users_list.html", users=users)
+
+
+@admin.route("/admin/users/new", methods=["GET"])
+@login_required
+@roles_required("admin")
+def users_new_get():
+    return render_template("admin/users_new.html")
+
+
+@admin.route("/admin/users/new", methods=["POST"])
+@login_required
+@roles_required("admin")
+def users_new_post():
+    email = (request.form.get("email") or "").strip().lower()
+    name = (request.form.get("name") or "").strip() or None
+    role = (request.form.get("role") or "admin").strip().lower()
+    password = (request.form.get("password") or "").strip()
+
+    allowed_roles = {"admin", "finance", "ops", "support"}
+
+    if not email or "@" not in email:
+        flash("Valid email is required.", "warning")
+        return redirect(url_for("admin.users_new_get"))
+
+    if role not in allowed_roles:
+        flash("Invalid role selected.", "warning")
+        return redirect(url_for("admin.users_new_get"))
+
+    if len(password) < 10:
+        flash("Password must be at least 10 characters.", "warning")
+        return redirect(url_for("admin.users_new_get"))
+
+    if AdminUser.query.filter_by(email=email).first():
+        flash("A user with that email already exists.", "warning")
+        return redirect(url_for("admin.users_new_get"))
+
+    u = AdminUser(email=email, name=name, role=role, is_active=True, is_superadmin=False)
+    u.set_password(password)
+
+    try:
+        db.session.add(u)
+        db.session.commit()
+        flash("User created successfully.", "success")
+    except Exception:
+        db.session.rollback()
+        flash("Failed to create user. Please try again.", "error")
+
+    return redirect(url_for("admin.users_list"))
+
+
+@admin.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
+@login_required
+@roles_required("admin")
+def users_toggle(user_id: int):
+    if user_id == getattr(current_user, "id", None):
+        flash("You cannot disable your own account.", "warning")
+        return redirect(url_for("admin.users_list"))
+
+    u = AdminUser.query.get_or_404(user_id)
+
+    if u.is_superadmin:
+        flash("Superadmin account cannot be disabled from this screen.", "warning")
+        return redirect(url_for("admin.users_list"))
+
+    u.is_active = not bool(u.is_active)
+
+    try:
+        db.session.commit()
+        flash(f"User {'enabled' if u.is_active else 'disabled'} successfully.", "success")
+    except Exception:
+        db.session.rollback()
+        flash("Failed to update user.", "error")
+
+    return redirect(url_for("admin.users_list"))
+
