@@ -15,15 +15,21 @@ from .scheduler import enforce_pppoe_expiry
 
 def _load_env() -> None:
     """
-    Load .env reliably for:
-    - flask run
-    - python -c / scripts
-    - gunicorn / Render
+    Load .env for LOCAL DEV, without overriding real environment variables.
+
+    Rule:
+    - If DATABASE_URL is already set (e.g. Render, migration commands),
+      do NOT override it from .env.
     """
+    # If DB is already provided by the environment, respect it.
+    if os.getenv("DATABASE_URL"):
+        return
+
     project_root = Path(__file__).resolve().parent.parent
     env_path = project_root / ".env"
     if env_path.exists():
-        load_dotenv(dotenv_path=env_path, override=True)
+        # Critical: do NOT override exported env vars
+        load_dotenv(dotenv_path=env_path, override=False)
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -36,7 +42,7 @@ def _env_flag(name: str, default: bool = True) -> bool:
 
 def create_app() -> Flask:
     # ---------------------------------------------------------
-    # 1) Load .env BEFORE importing Config
+    # 1) Load .env BEFORE importing Config (local dev only)
     # ---------------------------------------------------------
     _load_env()
 
@@ -50,16 +56,14 @@ def create_app() -> Flask:
     # ---------------------------------------------------------
     app = Flask(__name__, instance_relative_config=False)
     app.config.from_object(Config)
-    app.config.setdefault("SECRET_KEY", "dev-change-me")
 
-    # Optional: allow env override in addition to Config
-    # (If you already set this inside Config, this won’t hurt.)
-    app.config.setdefault("SCHEDULER_ENABLED", _env_flag("SCHEDULER_ENABLED", True))
-    app.config.setdefault("SCHEDULER_DRY_RUN", _env_flag("SCHEDULER_DRY_RUN", True))
-    app.config.setdefault("SCHEDULER_INTERVAL_MINUTES", int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "2")))
+    # Scheduler settings (read from env; defaults safe)
+    app.config["SCHEDULER_ENABLED"] = _env_flag("SCHEDULER_ENABLED", False)
+    app.config["SCHEDULER_DRY_RUN"] = _env_flag("SCHEDULER_DRY_RUN", True)
+    app.config["SCHEDULER_INTERVAL_MINUTES"] = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "2"))
 
     # ---------------------------------------------------------
-    # 4) Logging (central)
+    # 4) Logging
     # ---------------------------------------------------------
     setup_logging(debug=bool(app.config.get("DEBUG", False)))
 
@@ -90,7 +94,7 @@ def create_app() -> Flask:
         return {"service": "dmp-hotspot", "status": "running"}
 
     # =========================================================
-    # 8) PPPoE Expiry Scheduler (Phase C)
+    # 8) PPPoE Expiry Scheduler (safe gating)
     # =========================================================
     scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -98,17 +102,15 @@ def create_app() -> Flask:
         """
         Start scheduler only when:
         - Enabled (SCHEDULER_ENABLED=true)
-        - NOT running via Flask CLI (db migrate/upgrade/shell/etc.)
-        - NOT the reloader parent process (debug reloader)
+        - NOT running via Flask CLI commands (db upgrade/migrate/shell/etc.)
+        - NOT the debug reloader parent process
         """
-        if not app.config.get("SCHEDULER_ENABLED", True):
+        if not app.config.get("SCHEDULER_ENABLED", False):
             return False
 
-        # Flask CLI sets this when running commands like `flask db ...`
         if _env_flag("FLASK_RUN_FROM_CLI", False):
             return False
 
-        # Flask debug reloader spawns two processes; only run in the child.
         if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
             return False
 
@@ -118,7 +120,7 @@ def create_app() -> Flask:
         if not _should_start_scheduler():
             app.logger.info(
                 "Scheduler NOT started (SCHEDULER_ENABLED=%s, FLASK_RUN_FROM_CLI=%s, debug=%s, WERKZEUG_RUN_MAIN=%s).",
-                app.config.get("SCHEDULER_ENABLED", True),
+                app.config.get("SCHEDULER_ENABLED", False),
                 os.getenv("FLASK_RUN_FROM_CLI", ""),
                 app.debug,
                 os.getenv("WERKZEUG_RUN_MAIN", ""),
@@ -144,17 +146,14 @@ def create_app() -> Flask:
         scheduler.start()
         app.logger.info("Scheduler started (interval=%sm, dry_run=%s).", interval_minutes, dry_run)
 
-    # Start immediately after app is created (but safely gated)
     start_scheduler()
 
-    # Ensure clean shutdown (helps in dev reloads and tests)
     @app.teardown_appcontext
     def _shutdown_scheduler(_exc):
         if scheduler.running:
             try:
                 scheduler.shutdown(wait=False)
             except Exception:
-                # Don’t break request teardown if scheduler shutdown fails
                 pass
 
     return app
