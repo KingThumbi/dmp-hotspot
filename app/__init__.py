@@ -7,7 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, current_app as flask_current_app
 
 from .logging import setup_logging
 from .scheduler import enforce_pppoe_expiry
@@ -157,3 +157,7 @@ def create_app() -> Flask:
                 pass
 
     return app
+
+    @app.context_processor
+    def inject_current_app():
+        return {"current_app": flask_current_app}

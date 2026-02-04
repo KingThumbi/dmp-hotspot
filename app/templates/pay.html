@@ -1,6 +1,13 @@
+{# app/templates/pay.html #}
 {% extends "admin/base.html" %}
 
 {% block title %}Pay{% endblock %}
+
+{% block header %}Hotspot Payment{% endblock %}
+
+{% block page_subtitle %}
+  <p>Enter your phone number, select a package, then tap Pay.</p>
+{% endblock %}
 
 {% block content %}
   <style>
@@ -15,7 +22,8 @@
       margin: 14px 0;
     }
 
-    .btn {
+    /* override base .btn for this page only (scoped by .pay-wrap) */
+    .pay-wrap .btn {
       border-radius: 14px;
       font-weight: 900;
       border: 1px solid rgba(2,6,23,.10);
@@ -26,26 +34,26 @@
       user-select: none;
     }
 
-    .btn:disabled {
+    .pay-wrap .btn:disabled {
       cursor: not-allowed;
       opacity: .7;
     }
 
-    .btn--primary {
+    .pay-wrap .btn--primary {
       background: var(--navy);
       color: #fff;
       border: 1px solid rgba(255,255,255,.18);
       box-shadow: 0 10px 18px rgba(0,0,128,.25);
     }
 
-    .btn--neutral {
+    .pay-wrap .btn--neutral {
       background: #e5e7eb;
       color: #111827;
       border: 1px solid rgba(2,6,23,.10);
       box-shadow: none;
     }
 
-    .input {
+    .pay-wrap .input {
       width: 100%;
       height: 42px;
       border-radius: 12px;
@@ -53,8 +61,10 @@
       padding: 0 12px;
       outline: none;
       font-weight: 800;
+      background: #fff;
+      color: var(--text);
     }
-    .input:focus {
+    .pay-wrap .input:focus {
       border-color: rgba(0,0,128,.35);
       box-shadow: 0 0 0 4px rgba(0,0,128,.08);
     }
@@ -109,6 +119,7 @@
       color: var(--text);
       width: 100%;
       overflow: hidden;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
     }
     .pkg-tile:hover{
       transform: translateY(-1px);
@@ -173,26 +184,7 @@
     }
   </style>
 
-  <div class="card">
-    <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px;">
-      <div style="min-width:240px;">
-        <h1 style="margin:0; color:var(--navy); font-weight:900; font-size:20px;">Hotspot Payment</h1>
-        <div class="muted" style="margin-top:6px;">
-          Enter your phone number and select a package.
-        </div>
-      </div>
-
-      {% if current_user.is_authenticated %}
-        <a class="navlink"
-           style="background:rgba(255,255,255,.10); color:#fff; border:1px solid rgba(255,255,255,.18);"
-           href="{{ url_for('admin.dashboard') }}">
-          Admin
-        </a>
-      {% endif %}
-    </div>
-
-    <hr class="hr">
-
+  <div class="pay-wrap page">
     <!-- Phone + Pay -->
     <div class="paybar">
       <label for="phone" class="muted" style="display:block; font-size:13px; font-weight:900;">
@@ -224,8 +216,10 @@
       </button>
     </div>
 
+    <hr class="hr">
+
     <!-- Packages -->
-    <div style="margin-top:16px;">
+    <div>
       <div class="muted" style="font-weight:900; margin-bottom:8px;">Select a package</div>
 
       <div id="packagesGrid" class="packagesGrid">
@@ -257,7 +251,7 @@
         {% endfor %}
       </div>
 
-      <div class="row" style="justify-content:space-between; margin-top:12px; align-items:center;">
+      <div class="row" style="justify-content:space-between; margin-top:12px; align-items:center; gap:10px;">
         <div class="muted" style="font-size:13px;">
           Selected:
           <span id="selectedLabel" style="font-weight:900; color:var(--navy);">None</span>
@@ -327,22 +321,23 @@
       titleEl.textContent = title;
       msgEl.innerHTML = msgHtml;
 
-      // reset
+      // Reset to neutral
       titleEl.style.color = "var(--navy)";
       box.style.background = "#fff";
       box.style.borderColor = "rgba(2,6,23,.10)";
 
+      // If your base.css defines these, they’ll apply; otherwise it stays neutral.
       if(kind === "success"){
-        titleEl.style.color = "var(--success-tx)";
-        box.style.background = "var(--success-bg)";
+        titleEl.style.color = "var(--success-tx, #166534)";
+        box.style.background = "var(--success-bg, rgba(16,185,129,.08))";
         box.style.borderColor = "rgba(22,101,52,.18)";
       }else if(kind === "warning"){
-        titleEl.style.color = "var(--warn-tx)";
-        box.style.background = "var(--warn-bg)";
+        titleEl.style.color = "var(--warn-tx, #92400e)";
+        box.style.background = "var(--warn-bg, rgba(245,158,11,.10))";
         box.style.borderColor = "rgba(146,64,14,.18)";
       }else if(kind === "error"){
-        titleEl.style.color = "var(--danger-tx)";
-        box.style.background = "var(--danger-bg)";
+        titleEl.style.color = "var(--danger-tx, #7f1d1d)";
+        box.style.background = "var(--danger-bg, rgba(239,68,68,.08))";
         box.style.borderColor = "rgba(127,29,29,.18)";
       }
 
@@ -384,6 +379,7 @@
         : selectedPackageName;
 
       document.getElementById("selectedLabel").textContent = label;
+
       const stickySelected = document.getElementById("stickySelected");
       if (stickySelected) stickySelected.textContent = label;
 
@@ -446,12 +442,11 @@
         statusEl.textContent = "Network error.";
       }finally{
         isSubmitting = false;
-        // re-enable only if a package is selected
         setButtonsEnabled(!!selectedPackageCode);
       }
     }
 
-    // initial state
+    // Initial state
     setButtonsEnabled(false);
     const stickySelected = document.getElementById("stickySelected");
     if (stickySelected) stickySelected.textContent = "None";

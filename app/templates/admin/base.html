@@ -345,9 +345,14 @@
 </head>
 
 <body>
-  {% set me = current_user if current_user.is_authenticated else None %}
+  {# -------------------------------------------------------
+     Auth context
+     - me is None for anonymous (login/pay pages)
+     - NEVER call me.* unless guarded by "me and ..."
+     ------------------------------------------------------- #}
+  {% set me = current_user if (current_user and current_user.is_authenticated) else None %}
   {% set is_admin = (me and (me.role == "admin" or me.is_superadmin)) %}
-  {% set role_label = (me.role if me and me.role else "admin") %}
+  {% set role_label = (me.role if (me and me.role) else "admin") %}
 
   <header class="topbar">
     <div class="topbar-inner">
@@ -387,85 +392,95 @@
 
   <div class="shell">
     <aside class="sidebar">
-      <div class="navsection">
-        <div class="navtitle">Overview</div>
-        <a class="navlink" href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-      </div>
 
-      <div class="navsection">
-        <div class="navtitle">Support</div>
+      {# Sidebar nav only makes sense when logged in #}
+      {% if me %}
 
-        {# Admin: show all. Others: only support/admin roles. #}
-        {% if is_admin or me.can_support() %}
-          <a class="navlink" href="{{ url_for('admin.customers') }}">
-            <span>Customers</span>
-          </a>
-        {% endif %}
+        <div class="navsection">
+          <div class="navtitle">Overview</div>
+          <a class="navlink" href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+        </div>
 
-        {% if is_admin or me.can_support() or me.can_ops() %}
-          <a class="navlink" href="{{ url_for('admin.subscriptions') }}">
-            <span>Subscriptions</span>
-            {% if (not is_admin) and me.can_support() and (not me.can_ops()) %}
-              <span class="navmeta"><span class="lock">read-only</span></span>
-            {% endif %}
-          </a>
-        {% endif %}
-      </div>
+        <div class="navsection">
+          <div class="navtitle">Support</div>
 
-      <div class="navsection">
-        <div class="navtitle">Operations</div>
+          {# Customers: Admin + Support #}
+          {% if is_admin or me.can_support() %}
+            <a class="navlink" href="{{ url_for('admin.customers') }}">
+              <span>Customers</span>
+            </a>
+          {% endif %}
 
-        {% if is_admin or me.can_ops() %}
-          <a class="navlink" href="{{ url_for('admin.assets') }}">
-            <span>Assets</span>
-          </a>
+          {# Subscriptions: Admin + Support (read-only) + Ops #}
+          {% if is_admin or me.can_support() or me.can_ops() %}
+            <a class="navlink" href="{{ url_for('admin.subscriptions') }}">
+              <span>Subscriptions</span>
+              {% if (not is_admin) and me.can_support() and (not me.can_ops()) %}
+                <span class="navmeta"><span class="lock">read-only</span></span>
+              {% endif %}
+            </a>
+          {% endif %}
+        </div>
 
-          <a class="navlink" href="{{ url_for('admin.subscriptions') }}">
-            <span>PPPoE / Subscriptions</span>
-          </a>
-        {% endif %}
-      </div>
+        <div class="navsection">
+          <div class="navtitle">Operations</div>
 
-      <div class="navsection">
-        <div class="navtitle">Finance</div>
+          {% if is_admin or me.can_ops() %}
+            <a class="navlink" href="{{ url_for('admin.assets') }}">
+              <span>Assets</span>
+            </a>
 
-        {% if is_admin or me.can_finance() %}
-          <a class="navlink" href="{{ url_for('admin.dashboard_finance') }}">
-            <span>Finance Dashboard</span>
-          </a>
+            <a class="navlink" href="{{ url_for('admin.pppoe_new') }}">
+              <span>PPPoE Provisioning</span>
+            </a>
+          {% endif %}
+        </div>
 
-          {# Optional: only include this if you have admin.transactions endpoint #}
-          <a class="navlink" href="{{ url_for('admin.transactions') }}">
-            <span>Transactions</span>
-          </a>
+        <div class="navsection">
+          <div class="navtitle">Finance</div>
 
-          <a class="navlink" href="{{ url_for('admin.expense_new') }}">
-            <span>New Expense</span>
-          </a>
+          {% if is_admin or me.can_finance() %}
+            <a class="navlink" href="{{ url_for('admin.dashboard_finance') }}">
+              <span>Finance Dashboard</span>
+            </a>
 
-          <a class="navlink" href="{{ url_for('admin.expense_categories_list') }}">
-            <span>Expense Categories</span>
-          </a>
+            <a class="navlink" href="{{ url_for('admin.transactions') }}">
+              <span>Transactions</span>
+            </a>
 
-          <a class="navlink" href="{{ url_for('admin.expense_templates_list') }}">
-            <span>Expense Templates</span>
-          </a>
-        {% endif %}
-      </div>
+            <a class="navlink" href="{{ url_for('admin.expense_new') }}">
+              <span>New Expense</span>
+            </a>
 
-      <div class="navsection">
-        <div class="navtitle">Administration</div>
+            <a class="navlink" href="{{ url_for('admin.expense_categories_list') }}">
+              <span>Expense Categories</span>
+            </a>
 
-        {% if is_admin %}
-          <a class="navlink" href="{{ url_for('admin.users_list') }}"><span>Users</span></a>
-            <span>Users</span>
-          </a>
-        {% endif %}
-      </div>
+            <a class="navlink" href="{{ url_for('admin.expense_templates_list') }}">
+              <span>Expense Templates</span>
+            </a>
+          {% endif %}
+        </div>
 
-      <div class="footer">
-        <div><strong class="muted">Time policy:</strong> DB UTC · UI EAT</div>
-      </div>
+        <div class="navsection">
+          <div class="navtitle">Administration</div>
+          {# Only show if the route actually exists (prevents BuildError) #}
+          {% if is_admin %}
+              <a class="navlink" href="{{ url_for('admin.users_list') }}">
+              <span>Users</span></a>
+          {% endif %}
+        </div>
+
+        <div class="footer">
+          <div><strong class="muted">Time policy:</strong> DB UTC · UI EAT</div>
+        </div>
+
+      {% else %}
+        <div class="footer">
+          <div><strong class="muted">Dmpolin Connect</strong> · Admin Portal</div>
+          <div class="muted" style="margin-top:6px;">Please log in to continue.</div>
+        </div>
+      {% endif %}
     </aside>
 
     <main class="main">
