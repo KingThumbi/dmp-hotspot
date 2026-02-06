@@ -34,6 +34,9 @@ from .models import (
     AdminUser,
     Asset,
     Customer,
+    CustomerLocation,
+    Ticket,
+    TicketUpdate,
     Expense,
     ExpenseCategory,
     ExpenseTemplate,
@@ -47,6 +50,7 @@ from .services.finance_reports import (
     last_n_months_summary,
     profit_snapshot_range,
 )
+from app.models import CustomerLocation
 
 admin = Blueprint("admin", __name__, template_folder="templates")
 
@@ -467,10 +471,46 @@ def dashboard():
 
     recent = Transaction.query.order_by(Transaction.created_at.desc()).limit(10).all()
 
-    # Finance snapshot: current UTC month using range helper (avoid missing imports)
+    # Finance snapshot: current UTC month
     now_utc_naive = utcnow_naive()
     start_utc, end_utc = _month_range_utc_naive(now_utc_naive)
     finance = profit_snapshot_range(start_utc, end_utc) or {"income_kes": 0, "expenses_kes": 0, "profit_kes": 0}
+
+    # -----------------------------
+    # Tickets KPIs
+    # -----------------------------
+    open_tickets = Ticket.query.filter(Ticket.status == "open").count()
+    assigned_tickets = Ticket.query.filter(Ticket.status == "assigned").count()
+    in_progress_tickets = Ticket.query.filter(Ticket.status == "in_progress").count()
+
+    urgent_open_tickets = (
+        Ticket.query
+        .filter(Ticket.priority == "urgent", Ticket.status.in_(["open", "assigned", "in_progress", "waiting_customer"]))
+        .count()
+    )
+
+    my_active_tickets = 0
+    try:
+        # show “my tickets” only when user has ops/support/admin role
+        if getattr(current_user, "role", None) in {"ops", "support", "admin"}:
+            my_active_tickets = (
+                Ticket.query
+                .filter(
+                    Ticket.assigned_to_admin_id == getattr(current_user, "id", None),
+                    Ticket.status.in_(["open", "assigned", "in_progress", "waiting_customer"]),
+                )
+                .count()
+            )
+    except Exception:
+        my_active_tickets = 0
+
+    tickets_kpis = {
+        "open": int(open_tickets or 0),
+        "assigned": int(assigned_tickets or 0),
+        "in_progress": int(in_progress_tickets or 0),
+        "urgent_active": int(urgent_open_tickets or 0),
+        "my_active": int(my_active_tickets or 0),
+    }
 
     return render_template(
         "admin/dashboard.html",
@@ -481,6 +521,7 @@ def dashboard():
         failed_tx=failed_tx,
         recent=recent,
         finance=finance,
+        tickets_kpis=tickets_kpis,
     )
 
 
@@ -638,8 +679,648 @@ def customer_detail(customer_id: int):
     subs = Subscription.query.filter_by(customer_id=customer_id).order_by(Subscription.created_at.desc()).all()
     txs = Transaction.query.filter_by(customer_id=customer_id).order_by(Transaction.created_at.desc()).limit(200).all()
 
-    return render_template("admin/customer_detail.html", customer=customer, subs=subs, txs=txs)
+    return render_template("admin/customer_detail.html", customer=customer, subs=subs, txs=txs, sub_identity=sub_identity)
 
+# =========================================================
+# Phase B — Customer Locations (Ops/Support/Admin)
+# =========================================================
+
+@admin.get("/customers/<int:customer_id>/locations")
+@roles_required("ops", "support", "admin")
+def customer_locations(customer_id: int):
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    locations = (
+        CustomerLocation.query
+        .filter_by(customer_id=customer_id)
+        .order_by(CustomerLocation.active.desc(), CustomerLocation.active_from_utc.desc(), CustomerLocation.id.desc())
+        .all()
+    )
+
+    return render_template(
+        "admin/customer_locations.html",
+        customer=customer,
+        locations=locations,
+        now_eat=to_nairobi(utcnow_naive()),
+    )
+
+
+@admin.get("/customers/<int:customer_id>/locations/new")
+@roles_required("ops", "admin")
+def customer_location_new_get(customer_id: int):
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    return render_template(
+        "admin/location_form.html",
+        customer=customer,
+        loc=None,
+        mode="new",
+    )
+
+
+@admin.post("/customers/<int:customer_id>/locations/new")
+@roles_required("ops", "admin")
+@limiter.limit("30 per minute")
+def customer_location_new_post(customer_id: int):
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    # fields
+    label = (request.form.get("label") or "").strip() or None
+    county = (request.form.get("county") or "").strip() or None
+    town = (request.form.get("town") or "").strip() or None
+    estate = (request.form.get("estate") or "").strip() or None
+    apartment_name = (request.form.get("apartment_name") or "").strip() or None
+    house_no = (request.form.get("house_no") or "").strip() or None
+    landmark = (request.form.get("landmark") or "").strip() or None
+    notes = (request.form.get("notes") or "").strip() or None
+
+    gps_lat_raw = (request.form.get("gps_lat") or "").strip()
+    gps_lng_raw = (request.form.get("gps_lng") or "").strip()
+
+    make_active = request.form.get("make_active") == "on"
+
+    gps_lat = None
+    gps_lng = None
+    try:
+        if gps_lat_raw:
+            gps_lat = float(gps_lat_raw)
+        if gps_lng_raw:
+            gps_lng = float(gps_lng_raw)
+    except ValueError:
+        flash("GPS coordinates must be numbers.", "error")
+        return redirect(url_for("admin.customer_location_new_get", customer_id=customer_id))
+
+    now = utcnow_naive()
+
+    loc = CustomerLocation(
+        customer_id=customer.id,
+        label=label,
+        county=county,
+        town=town,
+        estate=estate,
+        apartment_name=apartment_name,
+        house_no=house_no,
+        landmark=landmark,
+        gps_lat=gps_lat,
+        gps_lng=gps_lng,
+        notes=notes,
+        active=False,
+        active_from_utc=now,  # will be used if activated
+        active_to_utc=None,
+        created_by_admin_id=getattr(current_user, "id", None),
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(loc)
+    db.session.flush()
+
+    if make_active:
+        # deactivate any existing active location + activate this one
+        try:
+            _activate_location_tx(customer.id, loc.id)
+        except IntegrityError:
+            db.session.rollback()
+            flash("Could not activate location (another active location exists). Try again.", "error")
+            return redirect(url_for("admin.customer_locations", customer_id=customer_id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Failed to activate location: {e}", "error")
+            return redirect(url_for("admin.customer_locations", customer_id=customer_id))
+
+    try:
+        db.session.commit()
+        flash("Location saved.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to save location: {e}", "error")
+
+    return redirect(url_for("admin.customer_locations", customer_id=customer_id))
+
+
+@admin.get("/locations/<int:location_id>/edit")
+@roles_required("ops", "admin")
+def customer_location_edit_get(location_id: int):
+    loc = db.session.get(CustomerLocation, location_id)
+    if not loc:
+        flash("Location not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    customer = db.session.get(Customer, loc.customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    return render_template(
+        "admin/location_form.html",
+        customer=customer,
+        loc=loc,
+        mode="edit",
+    )
+
+
+@admin.post("/locations/<int:location_id>/edit")
+@roles_required("ops", "admin")
+@limiter.limit("30 per minute")
+def customer_location_edit_post(location_id: int):
+    loc = db.session.get(CustomerLocation, location_id)
+    if not loc:
+        flash("Location not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    # fields
+    loc.label = (request.form.get("label") or "").strip() or None
+    loc.county = (request.form.get("county") or "").strip() or None
+    loc.town = (request.form.get("town") or "").strip() or None
+    loc.estate = (request.form.get("estate") or "").strip() or None
+    loc.apartment_name = (request.form.get("apartment_name") or "").strip() or None
+    loc.house_no = (request.form.get("house_no") or "").strip() or None
+    loc.landmark = (request.form.get("landmark") or "").strip() or None
+    loc.notes = (request.form.get("notes") or "").strip() or None
+
+    gps_lat_raw = (request.form.get("gps_lat") or "").strip()
+    gps_lng_raw = (request.form.get("gps_lng") or "").strip()
+
+    try:
+        loc.gps_lat = float(gps_lat_raw) if gps_lat_raw else None
+        loc.gps_lng = float(gps_lng_raw) if gps_lng_raw else None
+    except ValueError:
+        flash("GPS coordinates must be numbers.", "error")
+        return redirect(url_for("admin.customer_location_edit_get", location_id=location_id))
+
+    loc.updated_at = utcnow_naive()
+
+    try:
+        db.session.commit()
+        flash("Location updated.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to update location: {e}", "error")
+
+    return redirect(url_for("admin.customer_locations", customer_id=loc.customer_id))
+
+
+def _activate_location_tx(customer_id: int, location_id: int) -> None:
+    """
+    Transaction-safe activation:
+    - Close any currently active location
+    - Activate the chosen location
+    DB enforces "one active" via partial unique index.
+    """
+    now = utcnow_naive()
+
+    # close current active
+    active_loc = (
+        CustomerLocation.query
+        .filter(CustomerLocation.customer_id == customer_id, CustomerLocation.active.is_(True))
+        .with_for_update()
+        .first()
+    )
+    if active_loc and active_loc.id != location_id:
+        active_loc.active = False
+        active_loc.active_to_utc = now
+        active_loc.updated_at = now
+
+    # activate selected
+    loc = (
+        CustomerLocation.query
+        .filter(CustomerLocation.id == location_id, CustomerLocation.customer_id == customer_id)
+        .with_for_update()
+        .first()
+    )
+    if not loc:
+        raise ValueError("Location not found for that customer.")
+
+    loc.active = True
+    # If it was previously active then closed, keep history clean by starting new active_from
+    loc.active_from_utc = now
+    loc.active_to_utc = None
+    loc.updated_at = now
+
+
+@admin.post("/locations/<int:location_id>/activate")
+@roles_required("ops", "admin")
+@limiter.limit("30 per minute")
+def customer_location_activate(location_id: int):
+    loc = db.session.get(CustomerLocation, location_id)
+    if not loc:
+        flash("Location not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    try:
+        _activate_location_tx(loc.customer_id, loc.id)
+        db.session.commit()
+        flash("Location activated.", "success")
+    except IntegrityError:
+        db.session.rollback()
+        flash("Could not activate location (another active exists). Try again.", "error")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to activate location: {e}", "error")
+
+    return redirect(url_for("admin.customer_locations", customer_id=loc.customer_id))
+
+
+# =========================================================
+# Phase B — Tickets (Ops/Support/Admin)
+# =========================================================
+
+def _ticket_code_for_id(ticket_id: int, opened_at_utc: datetime | None = None) -> str:
+    year = (opened_at_utc or utcnow_naive()).year
+    return f"TCK-{year}-{ticket_id:06d}"
+
+
+@admin.get("/tickets")
+@roles_required("ops", "support", "admin")
+def tickets():
+    status = (request.args.get("status") or "").strip().lower()
+    priority = (request.args.get("priority") or "").strip().lower()
+    category = (request.args.get("category") or "").strip().lower()
+    q = (request.args.get("q") or "").strip()
+    assigned_to = (request.args.get("assigned_to") or "").strip().lower()
+
+    query = Ticket.query
+
+    # -----------------------------
+    # Standard filters
+    # -----------------------------
+    if status:
+        query = query.filter(Ticket.status == status)
+
+    if priority:
+        query = query.filter(Ticket.priority == priority)
+
+    if category:
+        query = query.filter(Ticket.category == category)
+
+    # -----------------------------
+    # Assigned-to filter (NEW)
+    # -----------------------------
+    if assigned_to:
+        if assigned_to == "me":
+            if current_user.is_authenticated:
+                query = query.filter(
+                    Ticket.assigned_to_admin_id == getattr(current_user, "id", None)
+                )
+        elif assigned_to.isdigit():
+            query = query.filter(
+                Ticket.assigned_to_admin_id == int(assigned_to)
+            )
+
+    # -----------------------------
+    # Search
+    # -----------------------------
+    if q:
+        query = (
+            query.join(Customer, Ticket.customer_id == Customer.id)
+            .outerjoin(Subscription, Ticket.subscription_id == Subscription.id)
+            .filter(
+                or_(
+                    Ticket.code.ilike(f"%{q}%"),
+                    Ticket.subject.ilike(f"%{q}%"),
+                    Customer.phone.ilike(f"%{q}%"),
+                    Subscription.pppoe_username.ilike(f"%{q}%"),
+                    Subscription.hotspot_username.ilike(f"%{q}%"),
+                )
+            )
+        )
+
+    rows = query.order_by(Ticket.created_at.desc()).limit(400).all()
+
+    # technician list (for filters / assignment UI)
+    techs = (
+        AdminUser.query
+        .filter(AdminUser.is_active.is_(True))
+        .filter(AdminUser.role.in_(["ops", "support", "admin"]))
+        .order_by(AdminUser.role.asc(), AdminUser.email.asc())
+        .all()
+    )
+
+    return render_template(
+        "admin/tickets_list.html",
+        tickets=rows,
+        status=status,
+        priority=priority,
+        category=category,
+        q=q,
+        assigned_to=assigned_to,
+        techs=techs,
+    )
+
+
+@admin.get("/tickets/new")
+@roles_required("ops", "support", "admin")
+def ticket_new_get():
+    customer_id_raw = (request.args.get("customer_id") or "").strip()
+    customer = db.session.get(Customer, int(customer_id_raw)) if customer_id_raw.isdigit() else None
+
+    # simple picklists
+    categories = ["outage", "relocation", "installation", "billing", "speed", "hardware", "other"]
+    priorities = ["low", "med", "high", "urgent"]
+
+    # technicians
+    techs = (
+        AdminUser.query
+        .filter(AdminUser.is_active.is_(True))
+        .filter(AdminUser.role.in_(["ops", "support", "admin"]))
+        .order_by(AdminUser.role.asc(), AdminUser.email.asc())
+        .all()
+    )
+
+    # customer subscriptions + locations if customer preselected
+    subs = []
+    locs = []
+    if customer:
+        subs = Subscription.query.filter_by(customer_id=customer.id).order_by(Subscription.created_at.desc()).limit(30).all()
+        locs = CustomerLocation.query.filter_by(customer_id=customer.id).order_by(CustomerLocation.active.desc(), CustomerLocation.id.desc()).all()
+
+    pre_sub_id = (request.args.get("subscription_id") or "").strip()
+    pre_loc_id = (request.args.get("location_id") or "").strip()
+
+    # If no location explicitly passed, auto-pick active location
+    if customer and not pre_loc_id:
+        active_loc = (
+            CustomerLocation.query
+            .filter_by(customer_id=customer.id, active=True)
+            .order_by(CustomerLocation.active_from_utc.desc())
+            .first()
+        )
+        if active_loc:
+            pre_loc_id = str(active_loc.id)
+
+    return render_template(
+        "admin/ticket_new.html",
+        customer=customer,
+        categories=categories,
+        priorities=priorities,
+        techs=techs,
+        subs=subs,
+        locs=locs,
+        pre_sub_id=pre_sub_id,
+        pre_loc_id=pre_loc_id,
+    )
+
+@admin.post("/tickets/new")
+@roles_required("ops", "support", "admin")
+@limiter.limit("30 per minute")
+def ticket_new_post():
+    customer_id_raw = (request.form.get("customer_id") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+    description = (request.form.get("description") or "").strip()
+
+    category = (request.form.get("category") or "outage").strip().lower()
+    priority = (request.form.get("priority") or "med").strip().lower()
+
+    subscription_id_raw = (request.form.get("subscription_id") or "").strip()
+    location_id_raw = (request.form.get("location_id") or "").strip()
+
+    assigned_to_raw = (request.form.get("assigned_to_admin_id") or "").strip()
+
+    if not customer_id_raw.isdigit():
+        flash("Select a valid customer.", "error")
+        return redirect(url_for("admin.ticket_new_get"))
+
+    customer = db.session.get(Customer, int(customer_id_raw))
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.ticket_new_get"))
+
+    if not subject:
+        flash("Subject is required.", "error")
+        return redirect(url_for("admin.ticket_new_get", customer_id=customer.id))
+
+    subscription_id = int(subscription_id_raw) if subscription_id_raw.isdigit() else None
+    location_id = int(location_id_raw) if location_id_raw.isdigit() else None
+    assigned_to_admin_id = int(assigned_to_raw) if assigned_to_raw.isdigit() else None
+
+    now = utcnow_naive()
+
+    # Temporary code, then replace after flush with deterministic code from ID
+    tmp_code = f"TCK-TMP-{secrets.token_hex(4).upper()}"
+
+    t = Ticket(
+        code=tmp_code,
+        customer_id=customer.id,
+        subscription_id=subscription_id,
+        location_id=location_id,
+        category=category or "outage",
+        priority=priority or "med",
+        status="open",
+        subject=subject,
+        description=description or None,
+        opened_at_utc=now,
+        created_by_admin_id=getattr(current_user, "id", None),
+        assigned_to_admin_id=assigned_to_admin_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(t)
+    db.session.flush()
+
+    # Final code from ID
+    t.code = _ticket_code_for_id(t.id, t.opened_at_utc)
+
+    # Auto-status if assigned
+    if assigned_to_admin_id:
+        t.status = "assigned"
+
+    # Timeline seed
+    u0 = TicketUpdate(
+        ticket_id=t.id,
+        actor_admin_id=getattr(current_user, "id", None),
+        message="Ticket opened.",
+        status_from=None,
+        status_to=t.status,
+        assigned_from_admin_id=None,
+        assigned_to_admin_id=assigned_to_admin_id,
+        created_at=now,
+    )
+    db.session.add(u0)
+
+    try:
+        db.session.commit()
+        flash(f"Ticket created: {t.code}", "success")
+    except IntegrityError:
+        db.session.rollback()
+        flash("DB conflict while creating ticket. Please retry.", "error")
+        return redirect(url_for("admin.ticket_new_get", customer_id=customer.id))
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to create ticket: {e}", "error")
+        return redirect(url_for("admin.ticket_new_get", customer_id=customer.id))
+
+    return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
+
+
+@admin.get("/tickets/<int:ticket_id>")
+@roles_required("ops", "support", "admin")
+def ticket_detail(ticket_id: int):
+    t = db.session.get(Ticket, ticket_id)
+    if not t:
+        flash("Ticket not found.", "error")
+        return redirect(url_for("admin.tickets"))
+
+    # preload dropdowns
+    techs = (
+        AdminUser.query
+        .filter(AdminUser.is_active.is_(True))
+        .filter(AdminUser.role.in_(["ops", "support", "admin"]))
+        .order_by(AdminUser.role.asc(), AdminUser.email.asc())
+        .all()
+    )
+
+    categories = ["outage", "relocation", "installation", "billing", "speed", "hardware", "other"]
+    priorities = ["low", "med", "high", "urgent"]
+    statuses = ["open", "assigned", "in_progress", "waiting_customer", "resolved", "closed", "cancelled"]
+
+    updates = (
+        TicketUpdate.query
+        .filter_by(ticket_id=t.id)
+        .order_by(TicketUpdate.created_at.asc(), TicketUpdate.id.asc())
+        .all()
+    )
+
+    return render_template(
+        "admin/ticket_detail.html",
+        t=t,
+        updates=updates,
+        techs=techs,
+        categories=categories,
+        priorities=priorities,
+        statuses=statuses,
+        now_eat=to_nairobi(utcnow_naive()),
+    )
+
+
+@admin.post("/tickets/<int:ticket_id>/update")
+@roles_required("ops", "support", "admin")
+@limiter.limit("60 per minute")
+def ticket_add_update(ticket_id: int):
+    t = db.session.get(Ticket, ticket_id)
+    if not t:
+        flash("Ticket not found.", "error")
+        return redirect(url_for("admin.tickets"))
+
+    msg = (request.form.get("message") or "").strip()
+    if not msg:
+        flash("Update message cannot be empty.", "error")
+        return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
+
+    now = utcnow_naive()
+
+    u = TicketUpdate(
+        ticket_id=t.id,
+        actor_admin_id=getattr(current_user, "id", None),
+        message=msg,
+        created_at=now,
+    )
+    db.session.add(u)
+    t.updated_at = now
+
+    try:
+        db.session.commit()
+        flash("Update added.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to add update: {e}", "error")
+
+    return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
+
+
+@admin.post("/tickets/<int:ticket_id>/assign")
+@roles_required("ops", "support", "admin")
+@limiter.limit("60 per minute")
+def ticket_assign(ticket_id: int):
+    t = db.session.get(Ticket, ticket_id)
+    if not t:
+        flash("Ticket not found.", "error")
+        return redirect(url_for("admin.tickets"))
+
+    assigned_to_raw = (request.form.get("assigned_to_admin_id") or "").strip()
+    assigned_to_admin_id = int(assigned_to_raw) if assigned_to_raw.isdigit() else None
+
+    now = utcnow_naive()
+    prev = t.assigned_to_admin_id
+
+    t.assigned_to_admin_id = assigned_to_admin_id
+    if assigned_to_admin_id and (t.status in {"open"}):
+        t.status = "assigned"
+    t.updated_at = now
+
+    u = TicketUpdate(
+        ticket_id=t.id,
+        actor_admin_id=getattr(current_user, "id", None),
+        message=None,
+        assigned_from_admin_id=prev,
+        assigned_to_admin_id=assigned_to_admin_id,
+        status_from=None,
+        status_to=t.status,
+        created_at=now,
+    )
+    db.session.add(u)
+
+    try:
+        db.session.commit()
+        flash("Assignment updated.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to update assignment: {e}", "error")
+
+    return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
+
+
+@admin.post("/tickets/<int:ticket_id>/status")
+@roles_required("ops", "support", "admin")
+@limiter.limit("60 per minute")
+def ticket_set_status(ticket_id: int):
+    t = db.session.get(Ticket, ticket_id)
+    if not t:
+        flash("Ticket not found.", "error")
+        return redirect(url_for("admin.tickets"))
+
+    status_to = (request.form.get("status") or "").strip().lower()
+    allowed = {"open", "assigned", "in_progress", "waiting_customer", "resolved", "closed", "cancelled"}
+    if status_to not in allowed:
+        flash("Invalid status.", "error")
+        return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
+
+    now = utcnow_naive()
+    prev = t.status
+
+    t.status = status_to
+    t.updated_at = now
+
+    if status_to == "resolved" and not t.resolved_at_utc:
+        t.resolved_at_utc = now
+    if status_to in {"closed", "cancelled"} and not t.closed_at_utc:
+        t.closed_at_utc = now
+
+    u = TicketUpdate(
+        ticket_id=t.id,
+        actor_admin_id=getattr(current_user, "id", None),
+        message=None,
+        status_from=prev,
+        status_to=status_to,
+        created_at=now,
+    )
+    db.session.add(u)
+
+    try:
+        db.session.commit()
+        flash("Status updated.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to update status: {e}", "error")
+
+    return redirect(url_for("admin.ticket_detail", ticket_id=t.id))
 
 # =========================================================
 # PPPoE admin creation (Ops/Admin)

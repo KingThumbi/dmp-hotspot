@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 import sqlalchemy as sa
 from flask_login import UserMixin
@@ -11,44 +12,47 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .extensions import db
 
 # =========================================================
+# Helpers
+# =========================================================
+
+UTCNOW_SQL = sa.text("timezone('utc', now())")
+
+
+def utcnow() -> datetime:
+    """Python-side UTC timestamp."""
+    return datetime.utcnow()
+
+
+# =========================================================
 # Admin Users (System Users + Roles)
 # =========================================================
+
 class AdminUser(UserMixin, db.Model):
     """
     System users who can access /admin/* routes.
 
-    Phase E additions:
     - role: finance | ops | support | admin
-    - is_superadmin: bypass role checks (optional)
+    - is_superadmin: bypass role checks
     - name: optional display name
-
-    Notes:
-    - Table remains "admin_users" (matches DB).
-    - Login identifier is email (store lowercase).
-    - Uses strong password hashing (scrypt) for new/updated passwords.
     """
     __tablename__ = "admin_users"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    email: str = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash: str = db.Column(db.String(255), nullable=False)
 
-    password_hash = db.Column(db.String(255), nullable=False)
-
-    is_active = db.Column(
+    is_active: bool = db.Column(
         db.Boolean,
         nullable=False,
         default=True,
         server_default=sa.text("true"),
+        index=True,
     )
 
-    # -------------------------
-    # Phase E: roles & metadata
-    # -------------------------
-    name = db.Column(db.String(80), nullable=True)
+    name: Optional[str] = db.Column(db.String(80), nullable=True)
 
-    # roles: admin | finance | ops | support
-    role = db.Column(
+    role: str = db.Column(
         db.String(20),
         nullable=False,
         default="admin",
@@ -56,8 +60,7 @@ class AdminUser(UserMixin, db.Model):
         index=True,
     )
 
-    # optional: superadmin can access everything regardless of role
-    is_superadmin = db.Column(
+    is_superadmin: bool = db.Column(
         db.Boolean,
         nullable=False,
         default=False,
@@ -65,17 +68,40 @@ class AdminUser(UserMixin, db.Model):
         index=True,
     )
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,   # SQLAlchemy inserts
-        server_default=func.now(), # raw SQL inserts (DB local timezone; OK for legacy tables)
+        default=utcnow,
+        server_default=func.now(),  # keep legacy compatibility
         index=True,
+    )
+
+    # Tickets
+    tickets_created = db.relationship(
+        "Ticket",
+        foreign_keys="Ticket.created_by_admin_id",
+        back_populates="created_by",
+        lazy="select",
+    )
+
+    tickets_assigned = db.relationship(
+        "Ticket",
+        foreign_keys="Ticket.assigned_to_admin_id",
+        back_populates="assigned_to",
+        lazy="select",
+    )
+
+    ticket_updates = db.relationship(
+        "TicketUpdate",
+        foreign_keys="TicketUpdate.actor_admin_id",
+        back_populates="actor",
+        lazy="select",
     )
 
     # --- Password helpers ---
     @staticmethod
     def hash_password(password: str) -> str:
+        # scrypt is strong and supported by werkzeug
         return generate_password_hash(password, method="scrypt")
 
     def set_password(self, password: str) -> None:
@@ -86,21 +112,14 @@ class AdminUser(UserMixin, db.Model):
 
     # --- Role helpers ---
     def has_role(self, *roles: str) -> bool:
-        """
-        True if:
-        - user is superadmin, OR
-        - user's role is in roles
-        """
         if not self.is_active:
             return False
         if self.is_superadmin:
             return True
-
         my_role = (self.role or "").strip().lower()
         allowed = {r.strip().lower() for r in roles if r and r.strip()}
         return my_role in allowed
 
-    # Convenience helpers (optional, but useful in templates)
     def can_finance(self) -> bool:
         return self.has_role("finance", "admin")
 
@@ -117,31 +136,28 @@ class AdminUser(UserMixin, db.Model):
 # =========================================================
 # Admin Audit Logs
 # =========================================================
+
 class AdminAuditLog(db.Model):
     __tablename__ = "admin_audit_logs"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    admin_user_id = db.Column(
+    admin_user_id: int = db.Column(
         db.Integer,
         db.ForeignKey("admin_users.id"),
         nullable=False,
         index=True,
     )
 
-    # e.g. login_success, login_failed, password_changed, logout
-    action = db.Column(db.String(60), nullable=False, index=True)
+    action: str = db.Column(db.String(60), nullable=False, index=True)
+    ip_address: Optional[str] = db.Column(db.String(64), nullable=True)
+    user_agent: Optional[str] = db.Column(db.String(255), nullable=True)
+    meta_json: Optional[str] = db.Column(db.Text, nullable=True)
 
-    ip_address = db.Column(db.String(64), nullable=True)
-    user_agent = db.Column(db.String(255), nullable=True)
-
-    # optional metadata (JSON stored as text)
-    meta_json = db.Column(db.Text, nullable=True)
-
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=utcnow,
         server_default=func.now(),
         index=True,
     )
@@ -155,32 +171,48 @@ class AdminAuditLog(db.Model):
 # =========================================================
 # Packages (Hotspot & PPPoE Plans)
 # =========================================================
+
 class Package(db.Model):
-    """
-    Represents any plan you sell.
-    """
+    """Represents any plan you sell (Hotspot or PPPoE)."""
     __tablename__ = "packages"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    code = db.Column(db.String(30), unique=True, nullable=False, index=True)
-    name = db.Column(db.String(80), nullable=False)
+    code: str = db.Column(db.String(30), unique=True, nullable=False, index=True)
+    name: str = db.Column(db.String(80), nullable=False)
 
-    duration_minutes = db.Column(db.Integer, nullable=False)
-    price_kes = db.Column(db.Integer, nullable=False)
+    duration_minutes: int = db.Column(db.Integer, nullable=False)
+    price_kes: int = db.Column(db.Integer, nullable=False)
 
-    # MikroTik profile name
-    mikrotik_profile = db.Column(db.String(60), nullable=False)
+    mikrotik_profile: str = db.Column(db.String(60), nullable=False)
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=utcnow,
         server_default=func.now(),
         index=True,
     )
 
-    subscriptions = db.relationship("Subscription", back_populates="package", lazy="select")
+    # IMPORTANT: subscriptions has TWO FKs referencing packages.id
+    # - Subscription.package_id
+    # - Subscription.pending_package_id
+    #
+    # We must disambiguate with foreign_keys to avoid AmbiguousForeignKeysError.
+    subscriptions = db.relationship(
+        "Subscription",
+        foreign_keys="Subscription.package_id",
+        back_populates="package",
+        lazy="select",
+    )
+
+    pending_subscriptions = db.relationship(
+        "Subscription",
+        foreign_keys="Subscription.pending_package_id",
+        back_populates="pending_package",
+        lazy="select",
+    )
+
     transactions = db.relationship("Transaction", back_populates="package", lazy="select")
 
     def __repr__(self) -> str:
@@ -190,24 +222,41 @@ class Package(db.Model):
 # =========================================================
 # Customers
 # =========================================================
+
 class Customer(db.Model):
     __tablename__ = "customers"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
     # Store phone in normalized format (e.g. 2547XXXXXXXX)
-    phone = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    phone: str = db.Column(db.String(20), unique=True, nullable=False, index=True)
 
     # PPPoE creds (optional)
-    pppoe_username = db.Column(db.String(64), unique=True, nullable=True, index=True)
-    pppoe_password = db.Column(db.String(128), nullable=True)
+    pppoe_username: Optional[str] = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    pppoe_password: Optional[str] = db.Column(db.String(128), nullable=True)
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=utcnow,
         server_default=func.now(),
         index=True,
+    )
+
+    locations = db.relationship(
+        "CustomerLocation",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        lazy="select",
+        order_by="CustomerLocation.created_at.desc()",
+    )
+
+    tickets = db.relationship(
+        "Ticket",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        lazy="select",
+        order_by="Ticket.created_at.desc()",
     )
 
     subscriptions = db.relationship(
@@ -216,6 +265,7 @@ class Customer(db.Model):
         cascade="all, delete-orphan",
         lazy="select",
     )
+
     transactions = db.relationship(
         "Transaction",
         back_populates="customer",
@@ -229,6 +279,14 @@ class Customer(db.Model):
         lazy="select",
     )
 
+    @property
+    def active_location(self):
+        # Best-effort helper (DB should enforce uniqueness via partial index)
+        for loc in self.locations:
+            if loc.active:
+                return loc
+        return None
+
     def __repr__(self) -> str:
         return f"<Customer id={self.id} phone={self.phone} pppoe_username={self.pppoe_username}>"
 
@@ -236,71 +294,111 @@ class Customer(db.Model):
 # =========================================================
 # Subscriptions (Customer Entitlement)
 # =========================================================
+
 class Subscription(db.Model):
     __tablename__ = "subscriptions"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
-    package_id = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=False, index=True)
+    customer_id: int = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
 
-    service_type = db.Column(
+    package_id: int = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=False, index=True)
+
+    # If customer requests a downgrade mid-cycle, apply it at next renewal (no refunds)
+    pending_package_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("packages.id"),
+        nullable=True,
+        index=True,
+    )
+
+    service_type: str = db.Column(
         db.String(20),
         nullable=False,
         default="hotspot",
-        server_default="hotspot",
+        server_default=sa.text("'hotspot'"),
         index=True,
     )
 
-    pppoe_username = db.Column(db.String(64), nullable=True, index=True)
-    hotspot_username = db.Column(db.String(64), nullable=True, index=True)
+    pppoe_username: Optional[str] = db.Column(db.String(64), nullable=True, index=True)
+    hotspot_username: Optional[str] = db.Column(db.String(64), nullable=True, index=True)
 
-    status = db.Column(
+    status: str = db.Column(
         db.String(20),
         nullable=False,
         default="pending",
-        server_default="pending",
+        server_default=sa.text("'pending'"),
         index=True,
     )
 
-    starts_at = db.Column(db.DateTime, nullable=True, index=True)
-    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    starts_at: Optional[datetime] = db.Column(db.DateTime, nullable=True, index=True)
+    expires_at: Optional[datetime] = db.Column(db.DateTime, nullable=True, index=True)
 
-    router_username = db.Column(db.String(50), nullable=True, index=True)
+    router_username: Optional[str] = db.Column(db.String(50), nullable=True, index=True)
+    mac_address: Optional[str] = db.Column(db.String(30), nullable=True, index=True)
 
-    mac_address = db.Column(db.String(30), nullable=True, index=True)
+    last_tx_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("transactions.id"),
+        nullable=True,
+        index=True,
+    )
 
-    last_tx_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=True, index=True)
-
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=utcnow,
         server_default=func.now(),
         index=True,
     )
 
+    # Relationships
     customer = db.relationship("Customer", back_populates="subscriptions", lazy="joined")
-    package = db.relationship("Package", back_populates="subscriptions", lazy="joined")
-    last_transaction = db.relationship("Transaction", foreign_keys=[last_tx_id], lazy="joined")
+
+    package = db.relationship(
+        "Package",
+        foreign_keys=[package_id],
+        back_populates="subscriptions",
+        lazy="joined",
+    )
+
+    pending_package = db.relationship(
+        "Package",
+        foreign_keys=[pending_package_id],
+        back_populates="pending_subscriptions",
+        lazy="joined",
+    )
+
+    last_transaction = db.relationship(
+        "Transaction",
+        foreign_keys=[last_tx_id],
+        lazy="joined",
+    )
+
+    tickets = db.relationship(
+        "Ticket",
+        back_populates="subscription",
+        lazy="select",
+        order_by="Ticket.created_at.desc()",
+    )
 
     @property
-    def transaction_id(self) -> int | None:
+    def transaction_id(self) -> Optional[int]:
         return self.last_tx_id
 
     @transaction_id.setter
-    def transaction_id(self, value: int | None) -> None:
+    def transaction_id(self, value: Optional[int]) -> None:
         self.last_tx_id = value
 
     def identity(self) -> str:
-        if (self.service_type or "").lower().strip() == "pppoe":
+        if (self.service_type or "").strip().lower() == "pppoe":
             return (self.pppoe_username or "").strip()
         return (self.hotspot_username or "").strip()
 
-    def is_active_now(self, now: datetime | None = None) -> bool:
-        now = now or datetime.utcnow()
+    def is_active_now(self, now: Optional[datetime] = None) -> bool:
+        now = now or utcnow()
         return (
-            self.status == "active"
+            (self.status or "").strip().lower() == "active"
             and self.starts_at is not None
             and self.expires_at is not None
             and self.starts_at <= now < self.expires_at
@@ -313,37 +411,38 @@ class Subscription(db.Model):
 # =========================================================
 # Transactions (M-Pesa payments / STK push lifecycle)
 # =========================================================
+
 class Transaction(db.Model):
     __tablename__ = "transactions"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
-    package_id = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=False, index=True)
+    customer_id: int = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
+    package_id: int = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=False, index=True)
 
-    amount = db.Column(db.Integer, nullable=False)
+    amount: int = db.Column(db.Integer, nullable=False)
 
-    status = db.Column(
+    status: str = db.Column(
         db.String(20),
         nullable=False,
         default="pending",
-        server_default="pending",
+        server_default=sa.text("'pending'"),
         index=True,
     )
 
-    checkout_request_id = db.Column(db.String(80), unique=True, nullable=True, index=True)
-    merchant_request_id = db.Column(db.String(80), nullable=True, index=True)
-    mpesa_receipt = db.Column(db.String(40), unique=True, nullable=True, index=True)
+    checkout_request_id: Optional[str] = db.Column(db.String(80), unique=True, nullable=True, index=True)
+    merchant_request_id: Optional[str] = db.Column(db.String(80), nullable=True, index=True)
+    mpesa_receipt: Optional[str] = db.Column(db.String(40), unique=True, nullable=True, index=True)
 
-    result_code = db.Column(db.String(10), nullable=True)
-    result_desc = db.Column(db.String(255), nullable=True)
+    result_code: Optional[str] = db.Column(db.String(10), nullable=True)
+    result_desc: Optional[str] = db.Column(db.String(255), nullable=True)
 
-    raw_callback_json = db.Column(db.Text, nullable=True)
+    raw_callback_json: Optional[str] = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=utcnow,
         server_default=func.now(),
         index=True,
     )
@@ -358,44 +457,44 @@ class Transaction(db.Model):
 # =========================================================
 # Phase D — Assets & Expenses (Ops + Finance)
 # =========================================================
+
 class Asset(db.Model):
     __tablename__ = "assets"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    asset_type = db.Column(db.String(30), nullable=False, index=True)
-    brand = db.Column(db.String(60), nullable=True)
-    model = db.Column(db.String(60), nullable=True)
-    serial_number = db.Column(db.String(80), unique=True, nullable=True)
+    asset_type: str = db.Column(db.String(30), nullable=False, index=True)
+    brand: Optional[str] = db.Column(db.String(60), nullable=True)
+    model: Optional[str] = db.Column(db.String(60), nullable=True)
+    serial_number: Optional[str] = db.Column(db.String(80), unique=True, nullable=True)
 
     purchase_date = db.Column(db.Date, nullable=True)
-    purchase_cost = db.Column(db.Integer, nullable=True)  # KES
+    purchase_cost: Optional[int] = db.Column(db.Integer, nullable=True)
 
-    # in_store, deployed, faulty, retired, lost
-    status = db.Column(
+    status: str = db.Column(
         db.String(20),
         nullable=False,
         default="in_store",
-        server_default="in_store",
+        server_default=sa.text("'in_store'"),
         index=True,
     )
 
-    assigned_customer_id = db.Column(
+    assigned_customer_id: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("customers.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    assigned_location_id = db.Column(db.Integer, nullable=True)  # future FK to customer_locations
 
-    notes = db.Column(db.Text, nullable=True)
+    assigned_location_id = db.Column(db.Integer, nullable=True)  # future FK
 
-    created_at = db.Column(
+    notes: Optional[str] = db.Column(db.Text, nullable=True)
+
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        # Match DB migration for Phase D tables (UTC)
-        server_default=sa.text("timezone('utc', now())"),
+        default=utcnow,
+        server_default=UTCNOW_SQL,
         index=True,
     )
 
@@ -422,30 +521,30 @@ class Asset(db.Model):
 class AssetEvent(db.Model):
     __tablename__ = "asset_events"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    asset_id = db.Column(
+    asset_id: int = db.Column(
         db.Integer,
         db.ForeignKey("assets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    event_type = db.Column(db.String(30), nullable=False, index=True)
-    description = db.Column(db.Text, nullable=True)
+    event_type: str = db.Column(db.String(30), nullable=False, index=True)
+    description: Optional[str] = db.Column(db.Text, nullable=True)
 
-    performed_by_admin = db.Column(
+    performed_by_admin: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("admin_users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        server_default=sa.text("timezone('utc', now())"),
+        default=utcnow,
+        server_default=UTCNOW_SQL,
         index=True,
     )
 
@@ -459,27 +558,28 @@ class AssetEvent(db.Model):
 # =========================================================
 # Phase D.3 — Expense Categories & Templates
 # =========================================================
+
 class ExpenseCategory(db.Model):
     __tablename__ = "expense_categories"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    name = db.Column(db.String(60), nullable=False, index=True)
+    name: str = db.Column(db.String(60), nullable=False, index=True)
 
-    parent_id = db.Column(
+    parent_id: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("expense_categories.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=sa.text("true"))
+    is_active: bool = db.Column(db.Boolean, nullable=False, default=True, server_default=sa.text("true"))
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        server_default=sa.text("timezone('utc', now())"),
+        default=utcnow,
+        server_default=UTCNOW_SQL,
         index=True,
     )
 
@@ -497,7 +597,6 @@ class ExpenseCategory(db.Model):
         lazy="select",
     )
 
-
     templates = db.relationship("ExpenseTemplate", back_populates="category", lazy="select")
 
     def __repr__(self) -> str:
@@ -507,26 +606,26 @@ class ExpenseCategory(db.Model):
 class ExpenseTemplate(db.Model):
     __tablename__ = "expense_templates"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    category_id = db.Column(
+    category_id: int = db.Column(
         db.Integer,
         db.ForeignKey("expense_categories.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
-    name = db.Column(db.String(80), nullable=False, index=True)
-    default_amount = db.Column(db.Integer, nullable=True)
-    notes = db.Column(db.Text, nullable=True)
+    name: str = db.Column(db.String(80), nullable=False, index=True)
+    default_amount: Optional[int] = db.Column(db.Integer, nullable=True)
+    notes: Optional[str] = db.Column(db.Text, nullable=True)
 
-    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=sa.text("true"))
+    is_active: bool = db.Column(db.Boolean, nullable=False, default=True, server_default=sa.text("true"))
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        server_default=sa.text("timezone('utc', now())"),
+        default=utcnow,
+        server_default=UTCNOW_SQL,
         index=True,
     )
 
@@ -546,50 +645,49 @@ class Expense(db.Model):
     """
     __tablename__ = "expenses"
 
-    id = db.Column(db.Integer, primary_key=True)
+    id: int = db.Column(db.Integer, primary_key=True)
 
-    category = db.Column(db.String(30), nullable=False, index=True)
+    category: str = db.Column(db.String(30), nullable=False, index=True)
 
-    category_id = db.Column(
+    category_id: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("expense_categories.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    template_id = db.Column(
+    template_id: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("expense_templates.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    amount = db.Column(db.Integer, nullable=False)  # KES
-    description = db.Column(db.Text, nullable=True)
+    amount: int = db.Column(db.Integer, nullable=False)
+    description: Optional[str] = db.Column(db.Text, nullable=True)
 
-    asset_id = db.Column(
+    asset_id: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("assets.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    ticket_id = db.Column(db.Integer, nullable=True)  # future FK to tickets
+    ticket_id = db.Column(db.Integer, nullable=True)  # future FK
 
-    incurred_at = db.Column(db.DateTime, nullable=False, index=True)
+    incurred_at: datetime = db.Column(db.DateTime, nullable=False, index=True)
 
-    recorded_by_admin = db.Column(
+    recorded_by_admin: Optional[int] = db.Column(
         db.Integer,
         db.ForeignKey("admin_users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    created_at = db.Column(
+    created_at: datetime = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        # Keep DB default as-is for now (legacy), we can normalize later in a tiny migration
+        default=utcnow,
         server_default=func.now(),
         index=True,
     )
@@ -597,10 +695,291 @@ class Expense(db.Model):
     asset = db.relationship("Asset", back_populates="expenses", lazy="joined")
     admin_user = db.relationship("AdminUser", lazy="joined")
 
-    # Avoid name clash with legacy `category` text column
     category_ref = db.relationship("ExpenseCategory", lazy="joined")
     template = db.relationship("ExpenseTemplate", back_populates="expenses", lazy="joined")
 
     def __repr__(self) -> str:
         return f"<Expense id={self.id} category={self.category} amount={self.amount} incurred_at={self.incurred_at}>"
 
+
+# =========================================================
+# Phase A — Customer Locations & Ticketing (Schema First)
+# =========================================================
+
+class CustomerLocation(db.Model):
+    __tablename__ = "customer_locations"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+
+    customer_id: int = db.Column(
+        db.Integer,
+        db.ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    label: Optional[str] = db.Column(db.String(80), nullable=True)
+
+    county: Optional[str] = db.Column(db.String(60), nullable=True)
+    town: Optional[str] = db.Column(db.String(60), nullable=True)
+    estate: Optional[str] = db.Column(db.String(80), nullable=True)
+    apartment_name: Optional[str] = db.Column(db.String(120), nullable=True)
+    house_no: Optional[str] = db.Column(db.String(40), nullable=True)
+    landmark: Optional[str] = db.Column(db.String(200), nullable=True)
+
+    gps_lat = db.Column(db.Numeric(9, 6), nullable=True)
+    gps_lng = db.Column(db.Numeric(9, 6), nullable=True)
+
+    notes: Optional[str] = db.Column(db.Text, nullable=True)
+
+    active: bool = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.text("false"),
+        index=True,
+    )
+
+    active_from_utc: datetime = db.Column(db.DateTime, nullable=False, index=True)
+    active_to_utc: Optional[datetime] = db.Column(db.DateTime, nullable=True, index=True)
+
+    created_by_admin_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    updated_at: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    customer = db.relationship("Customer", back_populates="locations", lazy="joined")
+    created_by = db.relationship("AdminUser", lazy="joined")
+
+    tickets = db.relationship(
+        "Ticket",
+        back_populates="location",
+        lazy="select",
+    )
+
+    def __repr__(self) -> str:
+        return f"<CustomerLocation id={self.id} customer_id={self.customer_id} active={self.active} label={self.label}>"
+
+
+class Ticket(db.Model):
+    __tablename__ = "tickets"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+
+    code: str = db.Column(db.String(30), nullable=False, unique=True, index=True)
+
+    customer_id: int = db.Column(
+        db.Integer,
+        db.ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    subscription_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("subscriptions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    location_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("customer_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    category: str = db.Column(
+        db.String(40),
+        nullable=False,
+        default="outage",
+        server_default=sa.text("'outage'"),
+        index=True,
+    )
+
+    priority: str = db.Column(
+        db.String(10),
+        nullable=False,
+        default="med",
+        server_default=sa.text("'med'"),
+        index=True,
+    )
+
+    status: str = db.Column(
+        db.String(20),
+        nullable=False,
+        default="open",
+        server_default=sa.text("'open'"),
+        index=True,
+    )
+
+    subject: str = db.Column(db.String(160), nullable=False)
+    description: Optional[str] = db.Column(db.Text, nullable=True)
+
+    opened_at_utc: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    resolved_at_utc: Optional[datetime] = db.Column(db.DateTime, nullable=True, index=True)
+    closed_at_utc: Optional[datetime] = db.Column(db.DateTime, nullable=True, index=True)
+
+    created_by_admin_id: int = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    assigned_to_admin_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    updated_at: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    customer = db.relationship("Customer", back_populates="tickets", lazy="joined")
+    subscription = db.relationship("Subscription", back_populates="tickets", lazy="joined")
+    location = db.relationship("CustomerLocation", back_populates="tickets", lazy="joined")
+
+    created_by = db.relationship(
+        "AdminUser",
+        foreign_keys=[created_by_admin_id],
+        back_populates="tickets_created",
+        lazy="joined",
+    )
+
+    assigned_to = db.relationship(
+        "AdminUser",
+        foreign_keys=[assigned_to_admin_id],
+        back_populates="tickets_assigned",
+        lazy="joined",
+    )
+
+    updates = db.relationship(
+        "TicketUpdate",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="select",
+        order_by="TicketUpdate.created_at.asc()",
+    )
+
+    @property
+    def is_open(self) -> bool:
+        return (self.status or "").strip().lower() in {
+            "open", "assigned", "in_progress", "waiting_customer"
+        }
+
+    def __repr__(self) -> str:
+        return f"<Ticket id={self.id} code={self.code} status={self.status} customer_id={self.customer_id}>"
+
+
+class TicketUpdate(db.Model):
+    __tablename__ = "ticket_updates"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+
+    ticket_id: int = db.Column(
+        db.Integer,
+        db.ForeignKey("tickets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    actor_admin_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    message: Optional[str] = db.Column(db.Text, nullable=True)
+
+    status_from: Optional[str] = db.Column(db.String(20), nullable=True)
+    status_to: Optional[str] = db.Column(db.String(20), nullable=True)
+
+    assigned_from_admin_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    assigned_to_admin_id: Optional[int] = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: datetime = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=UTCNOW_SQL,
+        index=True,
+    )
+
+    ticket = db.relationship("Ticket", back_populates="updates", lazy="joined")
+
+    actor = db.relationship(
+        "AdminUser",
+        foreign_keys=[actor_admin_id],
+        back_populates="ticket_updates",
+        lazy="joined",
+    )
+
+    assigned_from = db.relationship(
+        "AdminUser",
+        foreign_keys=[assigned_from_admin_id],
+        lazy="joined",
+    )
+
+    assigned_to = db.relationship(
+        "AdminUser",
+        foreign_keys=[assigned_to_admin_id],
+        lazy="joined",
+    )
+
+    def __repr__(self) -> str:
+        return f"<TicketUpdate id={self.id} ticket_id={self.ticket_id} created_at={self.created_at}>"

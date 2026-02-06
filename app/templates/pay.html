@@ -3,10 +3,12 @@
 
 {% block title %}Pay{% endblock %}
 
-{% block header %}Hotspot Payment{% endblock %}
+{% block header %}Wi-Fi Hotspot{% endblock %}
 
 {% block page_subtitle %}
-  <p>Enter your phone number, select a package, then tap Pay.</p>
+  <p class="muted" style="margin:0;">
+    <b>Wi-Fi Hotspot</b> — For users on the go, with short term packages.
+  </p>
 {% endblock %}
 
 {% block content %}
@@ -185,7 +187,7 @@
   </style>
 
   <div class="pay-wrap page">
-    <!-- Phone + Pay -->
+    <!-- Phone + Subscribe -->
     <div class="paybar">
       <label for="phone" class="muted" style="display:block; font-size:13px; font-weight:900;">
         Phone Number
@@ -204,7 +206,7 @@
         You will receive a payment prompt on this number.
       </div>
 
-      <!-- Desktop Pay button (hidden on mobile) -->
+      <!-- Desktop Subscribe button (hidden on mobile) -->
       <button
         id="payBtn"
         type="button"
@@ -212,7 +214,7 @@
         onclick="submitPay()"
         disabled
       >
-        Pay
+        Subscribe
       </button>
     </div>
 
@@ -272,7 +274,7 @@
     </div>
   </div>
 
-  <!-- Mobile sticky Pay bar -->
+  <!-- Mobile sticky Subscribe bar -->
   <div class="stickyPaybar" role="region" aria-label="Payment actions">
     <div class="stickyPaybar__info">
       <div class="stickyPaybar__label">Selected package</div>
@@ -287,7 +289,7 @@
       style="min-width:140px; height:44px;"
       disabled
     >
-      Pay
+      Subscribe
     </button>
   </div>
 
@@ -326,7 +328,6 @@
       box.style.background = "#fff";
       box.style.borderColor = "rgba(2,6,23,.10)";
 
-      // If your base.css defines these, they’ll apply; otherwise it stays neutral.
       if(kind === "success"){
         titleEl.style.color = "var(--success-tx, #166534)";
         box.style.background = "var(--success-bg, rgba(16,185,129,.08))";
@@ -385,7 +386,7 @@
 
       if(!isSubmitting) setButtonsEnabled(true);
 
-      setResult("Selected", `Tap <b>Pay</b> to continue for <b>${label}</b>.`, null, "info");
+      setResult("Selected", `Tap <b>Subscribe</b> to continue for <b>${label}</b>.`, null, "info");
       document.getElementById("status").textContent = "";
     }
 
