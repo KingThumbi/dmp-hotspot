@@ -420,6 +420,14 @@
               {% endif %}
             </a>
           {% endif %}
+          
+          {# Tickets: Admin + Support + Ops #}
+          {% if is_admin or me.can_support() or me.can_ops() %}
+            <a class="navlink" href="{{ url_for('admin.tickets') }}">
+              <span>Tickets</span>
+            </a>
+          {% endif %}
+
         </div>
 
         <div class="navsection">

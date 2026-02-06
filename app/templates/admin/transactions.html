@@ -1,118 +1,400 @@
 {% extends "admin/base.html" %}
 {% block title %}Transactions{% endblock %}
+{% block header %}Transactions{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">Review payment attempts and confirmations. Times are displayed in Nairobi (EAT).</p>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.dashboard') }}">← Back</a>
+  <a class="btn" href="{{ url_for('admin.dashboard_finance') }}">Finance</a>
+  <a class="btn btn-primary" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
+{% endblock %}
 
 {% block content %}
+  <style>
+    /* -------------------------------------------------------
+       Transactions — Finance-aligned, dashboard-grade
+       HTML-only. Keeps variable names, routes, and blocks.
+    -------------------------------------------------------- */
 
-  <!-- Revenue Totals -->
-  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Revenue (Today)</div>
-      <div style="font-size:22px; font-weight:800;">KES {{ totals.today if totals else 0 }}</div>
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .stack{ display:flex; flex-direction:column; gap:12px; }
+
+    .panel{
+      background: var(--card, #fff);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      overflow:hidden;
+    }
+
+    .panel-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+    }
+
+    .panel-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+      line-height:1.2;
+    }
+
+    .panel-subtitle{
+      margin-top:4px;
+      font-size:12px;
+      color: var(--muted);
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    /* KPI cards (same as finance dashboard rhythm) */
+    .cards{
+      display:grid;
+      gap:12px;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+    }
+
+    @media (max-width: 980px){
+      .cards{ grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+    }
+    @media (max-width: 640px){
+      .cards{ grid-template-columns: 1fr; }
+    }
+
+    .kpi{
+      padding:12px 14px;
+    }
+    .kpi .kpi-label{
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.3px;
+    }
+    .kpi .kpi-value{
+      margin-top:6px;
+      font-size:22px;
+      font-weight:900;
+      letter-spacing:.2px;
+    }
+    .kpi .kpi-foot{
+      margin-top:6px;
+      font-size:12px;
+      color: var(--muted);
+    }
+
+    /* Toolbar / filters */
+    .toolbar{
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,.01);
+    }
+    .toolbar-row{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .filters{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      flex:1;
+      min-width: 260px;
+    }
+    .field{
+      min-width: 200px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .field label{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      margin:0;
+    }
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .link-reset{
+      text-decoration:none;
+      font-weight:900;
+      color: var(--muted);
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid transparent;
+    }
+    .link-reset:hover{
+      border-color: rgba(0,0,0,.10);
+      background: rgba(0,0,0,.03);
+      color: var(--text);
+    }
+
+    /* Responsive table */
+    .table-wrap{
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 1180px; /* ensures no crush; allows horizontal scroll */
+    }
+
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align:left;
+      font-size:11px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      padding:10px 12px;
+      background:#fff;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td{
+      padding:11px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      background:#fff;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover td{
+      background: rgba(0,0,0,.015);
+    }
+
+    .truncate{
+      max-width: 320px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space: nowrap;
+      display:inline-block;
+      vertical-align: bottom;
+    }
+
+    /* Pills (finance-aligned) */
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.02);
+      font-size:12px;
+      font-weight:900;
+      line-height:1.1;
+      white-space: nowrap;
+    }
+    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
+    .pill--warn{ border-color: rgba(255,165,0,.35); background: rgba(255,165,0,.10); }
+    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
+    .pill--info{ border-color: rgba(0,0,128,.25); background: rgba(0,0,128,.06); }
+
+    .empty{
+      padding:14px;
+      color: var(--muted);
+      font-size:13px;
+    }
+
+    @media (max-width: 640px){
+      table{ min-width: 1120px; }
+      .truncate{ max-width: 240px; }
+      .panel-head{ padding:12px; }
+      .toolbar{ padding:10px 12px; }
+    }
+  </style>
+
+  <div class="stack">
+
+    <!-- KPI totals -->
+    <div class="cards">
+      <section class="panel kpi">
+        <div class="kpi-label">Revenue (Today)</div>
+        <div class="kpi-value">KES {{ totals.today if totals else 0 }}</div>
+        <div class="kpi-foot">All successful payments today</div>
+      </section>
+
+      <section class="panel kpi">
+        <div class="kpi-label">Revenue (This Week)</div>
+        <div class="kpi-value">KES {{ totals.week if totals else 0 }}</div>
+        <div class="kpi-foot">Rolling 7-day window</div>
+      </section>
+
+      <section class="panel kpi">
+        <div class="kpi-label">Revenue (This Month)</div>
+        <div class="kpi-value">KES {{ totals.month if totals else 0 }}</div>
+        <div class="kpi-foot">Month-to-date revenue</div>
+      </section>
     </div>
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Revenue (This Week)</div>
-      <div style="font-size:22px; font-weight:800;">KES {{ totals.week if totals else 0 }}</div>
-    </div>
+    <!-- Transactions list -->
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Transactions</h3>
+          <div class="panel-subtitle">
+            <span>Payment attempts and confirmations</span>
+            <span style="opacity:.65;">•</span>
+            <span class="mono">{{ (items|length) if items else 0 }} shown</span>
+          </div>
+        </div>
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Revenue (This Month)</div>
-      <div style="font-size:22px; font-weight:800;">KES {{ totals.month if totals else 0 }}</div>
-    </div>
+        <div class="panel-subtitle" style="justify-content:flex-end;">
+          <a class="btn" href="{{ url_for('admin.dashboard_finance') }}">Finance Dashboard</a>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <form method="GET">
+          <div class="toolbar-row">
+            <div class="filters">
+              <div class="field">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                  <option value="">All</option>
+                  <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
+                  <option value="success" {% if status=='success' %}selected{% endif %}>success</option>
+                  <option value="failed" {% if status=='failed' %}selected{% endif %}>failed</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button type="submit" class="btn btn-primary">Filter</button>
+              <a class="link-reset" href="{{ url_for('admin.transactions') }}">Reset</a>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      {% if items and items|length %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:70px;">ID</th>
+                <th style="width:120px;">Status</th>
+                <th style="width:140px;">Phone</th>
+                <th style="width:140px;">Package</th>
+                <th style="width:120px; text-align:right;">Amount</th>
+                <th>Checkout ID</th>
+                <th style="width:170px;">Receipt</th>
+                <th>Result</th>
+                <th style="width:190px;">Created (Nairobi)</th>
+                <th style="width:120px; text-align:right;">JSON</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for item in items %}
+                {% set t = item.t %}
+                {% set st = (t.status or "")|lower %}
+
+                <tr>
+                  <td class="mono" style="color:var(--muted);">
+                    <span class="truncate" title="{{ t.id }}">{{ t.id }}</span>
+                  </td>
+
+                  <td>
+                    {% if st == "success" %}
+                      <span class="pill pill--ok">success</span>
+                    {% elif st == "failed" %}
+                      <span class="pill pill--bad">failed</span>
+                    {% elif st == "pending" %}
+                      <span class="pill pill--warn">pending</span>
+                    {% else %}
+                      <span class="pill pill--info">{{ st or "-" }}</span>
+                    {% endif %}
+                  </td>
+
+                  <td class="mono">
+                    <span class="truncate" title="{{ t.customer.phone if t.customer else '-' }}">
+                      {{ t.customer.phone if t.customer else "-" }}
+                    </span>
+                  </td>
+
+                  <td class="mono" style="color:var(--muted);">
+                    <span class="truncate" title="{{ t.package.code if t.package else '-' }}">
+                      {{ t.package.code if t.package else "-" }}
+                    </span>
+                  </td>
+
+                  <td class="mono" style="text-align:right;">
+                    <span class="truncate" title="{{ t.amount }}">KES {{ t.amount }}</span>
+                  </td>
+
+                  <td class="mono" style="color:var(--muted);">
+                    <span class="truncate" style="max-width:360px;" title="{{ t.checkout_request_id or '-' }}">
+                      {{ t.checkout_request_id or "-" }}
+                    </span>
+                  </td>
+
+                  <td class="mono">
+                    <span class="truncate" title="{{ t.mpesa_receipt or '-' }}">
+                      {{ t.mpesa_receipt or "-" }}
+                    </span>
+                  </td>
+
+                  <td style="color:var(--muted);">
+                    <span class="truncate" style="max-width:420px;" title="{{ t.result_desc or '-' }}">
+                      {{ t.result_desc or "-" }}
+                    </span>
+                  </td>
+
+                  <td class="mono" style="color:var(--muted);">
+                    <span class="truncate"
+                          title="{{ item.created_local.strftime('%Y-%m-%d %H:%M:%S') if item.created_local else '-' }}">
+                      {{ item.created_local.strftime("%Y-%m-%d %H:%M:%S") if item.created_local else "-" }}
+                    </span>
+                  </td>
+
+                  <td style="text-align:right; white-space:nowrap;">
+                    {% if t.raw_callback_json %}
+                      <a class="btn btn-sm" href="{{ url_for('admin.transaction_callback_json', tx_id=t.id, status=status) }}">View JSON</a>
+                    {% else %}
+                      <span class="muted">No JSON</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty">No transactions found.</div>
+      {% endif %}
+    </section>
+
   </div>
-
-  <div class="card">
-    <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap;">
-      <h2 style="margin:0;">Transactions</h2>
-
-      <form method="GET" class="row" style="gap:8px; flex-wrap:wrap;">
-        <select name="status">
-          <option value="">All</option>
-          <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
-          <option value="success" {% if status=='success' %}selected{% endif %}>success</option>
-          <option value="failed" {% if status=='failed' %}selected{% endif %}>failed</option>
-        </select>
-        <button type="submit">Filter</button>
-      </form>
-    </div>
-
-    <table style="margin-top:10px;">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Status</th>
-          <th>Phone</th>
-          <th>Package</th>
-          <th>Amount</th>
-          <th>CheckoutID</th>
-          <th>Receipt</th>
-          <th>Result</th>
-          <th>Created (Nairobi)</th>
-          <th></th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {% for item in items %}
-          {% set t = item.t %}
-
-          {% set status_bg = "#eef2ff" %}
-          {% set status_fg = "#3730a3" %}
-          {% if t.status == "success" %}
-            {% set status_bg = "#ecfdf5" %}
-            {% set status_fg = "#065f46" %}
-          {% elif t.status == "failed" %}
-            {% set status_bg = "#fef2f2" %}
-            {% set status_fg = "#991b1b" %}
-          {% elif t.status == "pending" %}
-            {% set status_bg = "#fffbeb" %}
-            {% set status_fg = "#92400e" %}
-          {% endif %}
-
-          <tr>
-            <td class="muted">{{ t.id }}</td>
-
-            <td>
-              <span class="pill" style="background:{{ status_bg }}; color:{{ status_fg }};">
-                {{ t.status }}
-              </span>
-            </td>
-
-            <td>{{ t.customer.phone if t.customer else "-" }}</td>
-            <td class="muted">{{ t.package.code if t.package else "-" }}</td>
-
-            <td>{{ t.amount }}</td>
-
-            <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis;">
-              {{ t.checkout_request_id or "-" }}
-            </td>
-
-            <td>{{ t.mpesa_receipt or "-" }}</td>
-
-            <td class="muted" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              {{ t.result_desc or "-" }}
-            </td>
-
-            <!-- ✅ Nairobi time -->
-            <td class="muted">
-              {{ item.created_local.strftime("%Y-%m-%d %H:%M:%S") if item.created_local else "-" }}
-            </td>
-
-            <td style="white-space:nowrap;">
-              {% if t.raw_callback_json %}
-                <a href="{{ url_for('admin.transaction_callback_json', tx_id=t.id, status=status) }}">View JSON</a>
-              {% else %}
-                <span class="muted">No JSON</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% else %}
-          <tr>
-            <td colspan="10" class="muted">No transactions found.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
 {% endblock %}

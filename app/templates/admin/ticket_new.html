@@ -1,0 +1,98 @@
+{% extends "admin/base.html" %}
+{% block title %}New Ticket{% endblock %}
+{% block header %}New Ticket{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.tickets') }}">Back</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .form{ display:grid; gap:12px; max-width: 900px; }
+    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 760px){ .row{ grid-template-columns: 1fr; } }
+    label{ font-size:12px; font-weight:900; display:block; margin-bottom:6px; }
+    input, select, textarea{
+      width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#fff; font-size:13px;
+    }
+    textarea{ min-height: 120px; resize: vertical; }
+    .hint{ font-size:12px; color: var(--muted); }
+  </style>
+
+  <form class="form" method="post" action="{{ url_for('admin.ticket_new_post') }}">
+    <div class="row">
+      <div>
+        <label>Customer ID</label>
+        <input name="customer_id" value="{{ customer.id if customer else '' }}" placeholder="e.g. 12" required>
+        <div class="hint">Tip: open a customer and click “New Ticket” from their page (we’ll add that button next).</div>
+      </div>
+      <div>
+        <label>Assign To (optional)</label>
+        <select name="assigned_to_admin_id">
+          <option value="">— Unassigned —</option>
+          {% for u in techs %}
+            <option value="{{ u.id }}">{{ u.role }} · {{ u.name or u.email }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Category</label>
+        <select name="category">
+          {% for c in categories %}
+            <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Priority</label>
+        <select name="priority">
+          {% for p in priorities %}
+            <option value="{{ p }}" {% if p == "med" %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% if customer %}
+      <div class="row">
+        <div>
+          <label>Subscription (optional)</label>
+          <select name="subscription_id">
+            <option value="">— None —</option>
+            {% for s in subs %}
+              <option value="{{ s.id }}" {% if pre_sub_id and (pre_sub_id|int == s.id) %}selected{% endif %}>
+                #{{ s.id }} · {{ s.service_type }} · {{ s.status }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Location (optional)</label>
+          <select name="location_id">
+            <option value="">— None —</option>
+            {% for loc in locs %}
+              <option value="{{ loc.id }}" {% if pre_loc_id and (pre_loc_id|int == loc.id) %}selected{% endif %}>
+                {% if loc.active %}ACTIVE · {% endif %}{{ loc.label or "Location" }} ({{ loc.town or "-" }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    {% endif %}
+
+    <div>
+      <label>Subject</label>
+      <input name="subject" placeholder="Short summary" required>
+    </div>
+
+    <div>
+      <label>Description</label>
+      <textarea name="description" placeholder="Describe the issue, exact symptoms, time started, etc."></textarea>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Create Ticket</button>
+  </form>
+{% endblock %}

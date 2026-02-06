@@ -11,75 +11,279 @@ Manage admin, finance, ops, and support users.
 {% endblock %}
 
 {% block content %}
+  <style>
+    /* -------------------------------------------------------
+       Users List — Dashboard-grade table + overflow safety
+       (HTML-only, preserves routes/vars/blocks)
+    -------------------------------------------------------- */
 
-<div class="card">
-  <table style="width:100%; border-collapse:collapse;">
-    <thead>
-      <tr class="muted small">
-        <th style="text-align:left; padding:10px;">Name</th>
-        <th style="text-align:left; padding:10px;">Email</th>
-        <th style="text-align:left; padding:10px;">Role</th>
-        <th style="text-align:left; padding:10px;">Status</th>
-        <th style="text-align:left; padding:10px;">Created</th>
-        <th style="text-align:left; padding:10px;">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for u in users %}
-        <tr style="border-top:1px solid rgba(255,255,255,.08);">
-          <td style="padding:10px;">
-            {{ u.name or "—" }}
-            {% if u.is_superadmin %}
-              <span class="badge">superadmin</span>
-            {% endif %}
-          </td>
+    .cardx{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      overflow:hidden;
+    }
 
-          <td style="padding:10px;">{{ u.email }}</td>
+    .table-wrap{
+      padding: 10px 12px 14px;
+      overflow-x:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-wrap::-webkit-scrollbar{ height:10px; }
+    .table-wrap::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.12); border-radius:999px; }
+    .table-wrap::-webkit-scrollbar-track{ background: rgba(0,0,0,.04); border-radius:999px; }
 
-          <td style="padding:10px;">
-            <span class="badge">{{ (u.role or "admin")|lower }}</span>
-          </td>
+    table{
+      width:100%;
+      min-width: 960px;
+      border-collapse: separate;
+      border-spacing: 0 10px;
+    }
+    thead th{
+      text-align:left;
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      padding: 0 10px 4px;
+      white-space:nowrap;
+    }
+    tbody td{
+      padding:10px 12px;
+      background:#fff;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      vertical-align: middle;
+    }
+    tbody tr td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:14px;
+      border-bottom-left-radius:14px;
+    }
+    tbody tr td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:14px;
+      border-bottom-right-radius:14px;
+    }
 
-          <td style="padding:10px;">
-            {% if u.is_active %}
-              <span class="badge">active</span>
-            {% else %}
-              <span class="badge muted">disabled</span>
-            {% endif %}
-          </td>
+    .cell-trunc{
+      max-width: 320px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      display:inline-block;
+      vertical-align:bottom;
+    }
 
-          <td style="padding:10px;">
-            {{ u.created_at.strftime("%Y-%m-%d") }}
-          </td>
+    .namecell{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .avatar{
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(2,6,23,.03);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:950;
+      letter-spacing:.3px;
+      color: rgba(2,6,23,.75);
+      flex: 0 0 auto;
+      user-select:none;
+    }
+    .nameblock{ min-width:0; display:flex; flex-direction:column; gap:2px; }
+    .nameblock strong{
+      font-weight:950;
+      letter-spacing:.2px;
+      max-width: 320px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .nameblock small{
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.2px;
+    }
 
-          <td style="padding:10px;">
-            {% if current_user.id != u.id %}
-              <form
-                method="post"
-                action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
-                style="display:inline;"
-              >
-                <button
-                  class="btnlink secondary"
-                  onclick="return confirm('Are you sure?')"
-                >
-                  {% if u.is_active %}Disable{% else %}Enable{% endif %}
-                </button>
-              </form>
-            {% else %}
-              <span class="muted small">You</span>
-            {% endif %}
-          </td>
-        </tr>
-      {% else %}
-        <tr>
-          <td colspan="6" class="muted" style="padding:14px;">
-            No users found.
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+    .pillx{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      font-size:11px;
+      font-weight:950;
+      white-space:nowrap;
+      background: rgba(2,6,23,.02);
+    }
+    .dot{
+      width:8px; height:8px;
+      border-radius:999px;
+      background: rgba(148,163,184,0.95);
+      box-shadow: 0 0 0 3px rgba(148,163,184,0.16);
+    }
+    .pillx-ok{
+      border-color: rgba(16,185,129,0.30);
+      background: rgba(16,185,129,0.10);
+    }
+    .pillx-ok .dot{
+      background: rgba(16,185,129,0.95);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
+    }
+    .pillx-warn{
+      border-color: rgba(148,163,184,0.45);
+      background: rgba(148,163,184,0.10);
+    }
 
+    .pillx-role{
+      border-color: rgba(59,130,246,0.20);
+      background: rgba(59,130,246,0.08);
+    }
+    .pillx-role .dot{
+      background: rgba(59,130,246,0.90);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.14);
+    }
+
+    .pillx-super{
+      border-color: rgba(245,158,11,0.28);
+      background: rgba(245,158,11,0.10);
+    }
+    .pillx-super .dot{
+      background: rgba(245,158,11,0.95);
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.16);
+    }
+
+    .actions{
+      display:inline-flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      align-items:center;
+    }
+    .btn-sm{
+      padding:8px 10px;
+      font-size:12px;
+      border-radius:12px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .empty{
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 720px){
+      .table-wrap{ padding: 8px 10px 12px; }
+      table{ min-width: 940px; }
+      .cell-trunc{ max-width: 240px; }
+      .nameblock strong{ max-width: 240px; }
+    }
+  </style>
+
+  <div class="cardx">
+    {% if users and users|length %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:280px;">User</th>
+              <th>Email</th>
+              <th style="width:160px;">Role</th>
+              <th style="width:140px;">Status</th>
+              <th style="width:140px;">Created</th>
+              <th style="width:200px; text-align:right;">Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for u in users %}
+              {% set initials = ((u.name or u.email or "U")[:1])|upper %}
+              <tr>
+                <td>
+                  <div class="namecell">
+                    <div class="avatar" aria-hidden="true">{{ initials }}</div>
+
+                    <div class="nameblock">
+                      <strong title="{{ u.name or '—' }}">{{ u.name or "—" }}</strong>
+
+                      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                        {% if u.is_superadmin %}
+                          <span class="pillx pillx-super" title="Superadmin">
+                            <span class="dot"></span> superadmin
+                          </span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+
+                <td>
+                  <span class="cell-trunc mono" title="{{ u.email }}">{{ u.email }}</span>
+                </td>
+
+                <td>
+                  <span class="pillx pillx-role" title="{{ (u.role or 'admin')|lower }}">
+                    <span class="dot"></span> {{ (u.role or "admin")|lower }}
+                  </span>
+                </td>
+
+                <td>
+                  {% if u.is_active %}
+                    <span class="pillx pillx-ok" title="Active">
+                      <span class="dot"></span> active
+                    </span>
+                  {% else %}
+                    <span class="pillx pillx-warn" title="Disabled">
+                      <span class="dot"></span> disabled
+                    </span>
+                  {% endif %}
+                </td>
+
+                <td class="mono muted">
+                  {{ u.created_at.strftime("%Y-%m-%d") }}
+                </td>
+
+                <td style="text-align:right;">
+                  <div class="actions">
+                    {% if current_user.id != u.id %}
+                      <form
+                        method="post"
+                        action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
+                        style="display:inline;"
+                      >
+                        <button
+                          type="submit"
+                          class="btn btn-sm"
+                          onclick="return confirm('Are you sure?')"
+                        >
+                          {% if u.is_active %}Disable{% else %}Enable{% endif %}
+                        </button>
+                      </form>
+                    {% else %}
+                      <span class="muted" style="align-self:center; font-weight:900;">You</span>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">No users found.</div>
+    {% endif %}
+  </div>
 {% endblock %}

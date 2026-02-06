@@ -1,52 +1,232 @@
 {% extends "admin/base.html" %}
 {% block title %}Expense Categories{% endblock %}
+{% block header %}Expense Categories{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">Organize expenses using parent → child categories (e.g., Utilities → KPLC).</p>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.dashboard_finance') }}">← Back</a>
+  <a class="btn" href="{{ url_for('admin.expense_templates_list') }}">Templates</a>
+  <a class="btn btn-primary" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
+{% endblock %}
 
 {% block content %}
-  <h2 style="margin:0 0 10px 0;">Expense Categories</h2>
+  <style>
+    .panel{
+      background: var(--card, #fff);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      overflow:hidden;
+    }
+    .panel-head{
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .panel-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+      line-height:1.2;
+    }
+    .panel-subtitle{
+      margin-top:4px;
+      font-size:12px;
+      color: var(--muted);
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
 
-  <div class="card" style="margin-bottom:12px;">
-    <form method="post" action="{{ url_for('admin.expense_categories_create') }}" class="row" style="gap:10px; align-items:end; flex-wrap:wrap;">
-      <div style="min-width:220px; flex:1;">
-        <label class="muted">Name</label>
-        <input class="input" name="name" placeholder="e.g. Utilities / KPLC / Rent" required />
-      </div>
+    .form{
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
 
-      <div style="min-width:220px;">
-        <label class="muted">Parent (optional)</label>
-        <select class="input" name="parent_id">
-          <option value="">— None (root) —</option>
-          {% for c in categories %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap:12px;
+      align-items:end;
+    }
 
+    .field{
+      grid-column: span 12;
+      min-width: 0;
+    }
+
+    .field label{
+      display:block;
+      font-size:12px;
+      font-weight:900;
+      color: var(--muted);
+      margin-bottom:6px;
+    }
+
+    .table-wrap{
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 640px;
+    }
+
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align:left;
+      font-size:11px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      padding:10px 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td{
+      padding:11px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      background:#fff;
+      white-space: nowrap;
+    }
+    tbody tr:hover td{ background: rgba(0,0,0,.015); }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .truncate{
+      max-width: 420px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space: nowrap;
+      display:inline-block;
+      vertical-align: bottom;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.02);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.1;
+      white-space: nowrap;
+    }
+    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
+    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
+
+    @media (min-width: 860px){
+      .span-6{ grid-column: span 6; }
+      .span-4{ grid-column: span 4; }
+      .span-3{ grid-column: span 3; }
+    }
+  </style>
+
+  <section class="panel" style="margin-bottom:12px;">
+    <div class="panel-head">
       <div>
-        <button class="btn primary" type="submit">Add Category</button>
+        <h3 class="panel-title">Add Category</h3>
+        <div class="panel-subtitle">
+          <span>Create a root category or nest under a parent</span>
+        </div>
       </div>
-    </form>
-  </div>
+      <div class="panel-subtitle" style="justify-content:flex-end;">
+        <span class="mono">{{ categories|length }} total</span>
+      </div>
+    </div>
 
-  <div class="card">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Name</th>
-          <th>Parent</th>
-          <th>Active</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in categories %}
-        <tr>
-          <td>{{ c.id }}</td>
-          <td>{{ c.name }}</td>
-          <td>{{ c.parent.name if c.parent else "-" }}</td>
-          <td>{{ "Yes" if c.is_active else "No" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="form">
+      <form method="post" action="{{ url_for('admin.expense_categories_create') }}">
+        <div class="grid">
+          <div class="field span-6">
+            <label>Name</label>
+            <input class="input" name="name" placeholder="e.g. Utilities / KPLC / Rent" required />
+          </div>
+
+          <div class="field span-4">
+            <label>Parent (optional)</label>
+            <select class="input" name="parent_id">
+              <option value="">— None (root) —</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field span-3" style="display:flex; justify-content:flex-end;">
+            <button class="btn primary" type="submit">Add Category</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3 class="panel-title">All Categories</h3>
+        <div class="panel-subtitle">
+          <span>Parent → child displayed in the list</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:80px;">ID</th>
+            <th>Name</th>
+            <th>Parent</th>
+            <th style="width:120px;">Active</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in categories %}
+            <tr>
+              <td class="mono">{{ c.id }}</td>
+              <td>
+                <span class="truncate" title="{{ c.name }}">{{ c.name }}</span>
+              </td>
+              <td>
+                <span class="truncate" title="{{ c.parent.name if c.parent else '-' }}">
+                  {{ c.parent.name if c.parent else "-" }}
+                </span>
+              </td>
+              <td>
+                {% if c.is_active %}
+                  <span class="pill pill--ok">Yes</span>
+                {% else %}
+                  <span class="pill pill--bad">No</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 {% endblock %}

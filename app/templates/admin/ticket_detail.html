@@ -1,0 +1,334 @@
+{# app/templates/admin/ticket_detail.html #}
+{% extends "admin/base.html" %}
+{% block title %}Ticket{% endblock %}
+{% block header %}Ticket {{ t.code }}{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted" style="margin:0;">
+    Customer:
+    <a href="{{ url_for('admin.customer_detail', customer_id=t.customer_id) }}">
+      {{ t.customer.phone if t.customer else ('#' ~ t.customer_id) }}
+    </a>
+    · Status: <strong>{{ t.status }}</strong>
+    · Priority: <strong>{{ t.priority }}</strong>
+    · Category: <strong>{{ t.category }}</strong>
+  </p>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.tickets') }}">← Back</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    /* ===== Layout ===== */
+    .layout{
+      display:grid;
+      grid-template-columns: 1.35fr .85fr;
+      gap:12px;
+      align-items:start;
+    }
+    @media (max-width: 980px){
+      .layout{ grid-template-columns: 1fr; }
+    }
+
+    .cardx{
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:14px;
+      background:#fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .section-title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+      font-weight:950;
+    }
+
+    .muted2{ color: var(--muted); font-size:12px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+
+    /* ===== Pills / Badges ===== */
+    .pill{
+      font-size:11px;
+      font-weight:900;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      white-space:nowrap;
+    }
+    .pill.open{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+    .pill.assigned{ border-color: rgba(59,130,246,0.35); background: rgba(59,130,246,0.10); }
+    .pill.in_progress{ border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.10); }
+    .pill.waiting_customer{ border-color: rgba(168,85,247,0.30); background: rgba(168,85,247,0.10); }
+    .pill.resolved{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
+    .pill.closed{ border-color: rgba(107,114,128,0.35); background: rgba(107,114,128,0.10); }
+    .pill.cancelled{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
+
+    /* ===== Summary bar ===== */
+    .summary{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-bottom:12px;
+    }
+    .kv{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:#fff;
+      box-shadow: var(--shadow-sm);
+      font-size:12px;
+      font-weight:900;
+    }
+
+    /* ===== Forms ===== */
+    label{
+      font-size:12px;
+      font-weight:900;
+      display:block;
+      margin-bottom:6px;
+      color: var(--muted);
+    }
+
+    select, textarea{
+      width:100%;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:#fff;
+      font-size:13px;
+      outline:none;
+    }
+    textarea{ min-height: 110px; resize: vertical; }
+
+    select:focus, textarea:focus{
+      border-color: rgba(0,0,128,0.25);
+      box-shadow: 0 0 0 4px rgba(0,0,128,0.06);
+    }
+
+    .form-actions{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:flex-start;
+      margin-top:10px;
+      flex-wrap:wrap;
+    }
+
+    .split{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width: 820px){
+      .split{ grid-template-columns: 1fr; }
+    }
+
+    /* ===== Text blocks ===== */
+    .hline{ border:none; border-top:1px solid rgba(2,6,23,.08); margin:12px 0; }
+    .title{ font-size:16px; font-weight:950; margin:0 0 8px 0; }
+    .pre{ white-space:pre-wrap; line-height:1.45; }
+    .truncate{ max-width: 480px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+  </style>
+
+  {% set st = (t.status or "") %}
+  {% set pr = (t.priority or "") %}
+  {% set cat = (t.category or "") %}
+
+  <div class="summary">
+    <div class="kv">
+      <span class="muted2">Code</span>
+      <span class="mono">{{ t.code }}</span>
+    </div>
+
+    <div class="kv">
+      <span class="muted2">Status</span>
+      <span class="pill {{ st }}">{{ st or "-" }}</span>
+    </div>
+
+    <div class="kv">
+      <span class="muted2">Priority</span>
+      <span class="pill">{{ pr or "-" }}</span>
+    </div>
+
+    <div class="kv">
+      <span class="muted2">Category</span>
+      <span class="pill">{{ cat or "-" }}</span>
+    </div>
+
+    <div class="kv">
+      <span class="muted2">Updated</span>
+      <span class="mono">{{ t.updated_at }}</span>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    {# ================= LEFT COLUMN ================= #}
+    <div class="grid-left" style="display:grid; gap:12px;">
+
+      <div class="cardx">
+        <div class="section-title">
+          <div>Ticket details</div>
+          <div class="muted2">
+            Opened: <span class="mono">{{ t.opened_at_utc or t.created_at }}</span>
+          </div>
+        </div>
+
+        <h3 class="title">{{ t.subject }}</h3>
+
+        {% if t.description %}
+          <div class="muted2" style="font-weight:900; margin-bottom:6px;">Description</div>
+          <div class="pre">{{ t.description }}</div>
+        {% else %}
+          <div class="muted2">No description provided.</div>
+        {% endif %}
+
+        <hr class="hline">
+
+        <div class="muted2" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <div>
+            <span style="font-weight:900;">Customer:</span>
+            <a class="mono" href="{{ url_for('admin.customer_detail', customer_id=t.customer_id) }}">
+              {{ t.customer.phone if t.customer else ('#' ~ t.customer_id) }}
+            </a>
+          </div>
+
+          {% if t.subscription_id %}
+            <div>
+              <span style="font-weight:900;">Subscription:</span>
+              <span class="mono">#{{ t.subscription_id }}</span>
+            </div>
+          {% endif %}
+
+          {% if t.location_id %}
+            <div>
+              <span style="font-weight:900;">Location:</span>
+              <span class="mono">#{{ t.location_id }}</span>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="cardx">
+        <div class="section-title">
+          <div>Timeline</div>
+          <div class="muted2">All updates are chronological</div>
+        </div>
+        {% include "admin/partials/ticket_timeline.html" %}
+      </div>
+
+    </div>
+
+    {# ================= RIGHT COLUMN ================= #}
+    <div class="grid-right" style="display:grid; gap:12px;">
+
+      <div class="cardx">
+        <div class="section-title">
+          <div>Actions</div>
+          <div class="muted2">Assignment & status</div>
+        </div>
+
+        <div class="split">
+          <form method="post" action="{{ url_for('admin.ticket_assign', ticket_id=t.id) }}">
+            <label>Assign technician</label>
+            <select name="assigned_to_admin_id">
+              <option value="">— Unassigned —</option>
+              {% for u in techs %}
+                <option value="{{ u.id }}" {% if t.assigned_to_admin_id == u.id %}selected{% endif %}>
+                  {{ u.role }} · {{ u.name or u.email }}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Update</button>
+            </div>
+          </form>
+
+          <form method="post" action="{{ url_for('admin.ticket_set_status', ticket_id=t.id) }}">
+            <label>Change status</label>
+            <select name="status">
+              {% for s in statuses %}
+                <option value="{{ s }}" {% if t.status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Update</button>
+            </div>
+          </form>
+        </div>
+
+        <hr class="hline">
+
+        <div class="muted2">
+          <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div>
+              <span style="font-weight:900;">Assigned to:</span>
+              {% if t.assigned_to_admin_id %}
+                <span class="mono">#{{ t.assigned_to_admin_id }}</span>
+              {% else %}
+                —
+              {% endif %}
+            </div>
+            <div>
+              <span style="font-weight:900;">Created:</span>
+              <span class="mono">{{ t.created_at }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cardx">
+        <div class="section-title">
+          <div>Add update</div>
+          <div class="muted2">Appears on timeline</div>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.ticket_add_update', ticket_id=t.id) }}">
+          <label>Message</label>
+          <textarea name="message" placeholder="Write an update / note for the timeline..."></textarea>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Add Update</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="cardx">
+        <div class="section-title">
+          <div>Quick links</div>
+          <div class="muted2">Open related screens</div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a class="btn" href="{{ url_for('admin.tickets', q=t.code) }}">Find similar</a>
+
+          {% if t.customer %}
+            <a class="btn" href="{{ url_for('admin.tickets', q=t.customer.phone) }}">Customer tickets</a>
+          {% endif %}
+
+          {% if t.location_id %}
+            <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=t.customer_id) }}">Customer locations</a>
+          {% endif %}
+        </div>
+
+        <div class="muted2" style="margin-top:10px;">
+          Tip: keep updates short, factual, and timestamped.
+        </div>
+      </div>
+
+    </div>
+  </div>
+{% endblock %}

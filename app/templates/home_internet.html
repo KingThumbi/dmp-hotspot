@@ -1,0 +1,304 @@
+{# app/templates/home_internet.html #}
+{% extends "admin/base.html" %}
+
+{% block title %}Home Internet{% endblock %}
+{% block header %}Home Internet{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted" style="margin:0;">
+    Simple monthly plans for your home — choose a speed that fits your needs.
+  </p>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .page { padding-bottom: 30px; }
+
+    .hero{
+      border:1px solid rgba(2,6,23,.10);
+      border-radius:16px;
+      background:#fff;
+      box-shadow: 0 6px 18px rgba(2,6,23,.06);
+      padding: 14px 16px;
+    }
+    .hero h3{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+      letter-spacing:.2px;
+      color: var(--navy);
+    }
+    .hero p{
+      margin:6px 0 0 0;
+      color: var(--muted);
+      line-height:1.45;
+      font-size:13px;
+      max-width: 90ch;
+    }
+
+    .grid{
+      margin-top: 12px;
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .cardx{
+      background:#fff;
+      border: 1px solid rgba(2,6,23,.10);
+      box-shadow: 0 8px 18px rgba(2,6,23,.06);
+      border-radius: 16px;
+      padding: 14px;
+      overflow:hidden;
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:950;
+      border:1px solid rgba(2,6,23,.10);
+      background: rgba(2,6,23,.02);
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px; height:8px; border-radius:999px;
+      background: rgba(255,215,0,.95);
+      box-shadow: 0 0 0 3px rgba(255,215,0,.18);
+    }
+
+    .speed{
+      margin-top:10px;
+      font-size:20px;
+      font-weight:950;
+      letter-spacing:.2px;
+      color: #111827;
+      line-height:1.1;
+    }
+    .price{
+      margin-top:6px;
+      font-weight:950;
+      color: var(--navy);
+      font-size: 16px;
+    }
+    .per{
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      margin-left: 6px;
+    }
+
+    .bullets{
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px solid rgba(2,6,23,.08);
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      color: var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+
+    .cta{
+      margin-top:12px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .btnx{
+      border-radius:14px;
+      font-weight:900;
+      border: 1px solid rgba(2,6,23,.10);
+      padding:10px 14px;
+      cursor:pointer;
+      user-select:none;
+      background:#e5e7eb;
+      color:#111827;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .btnx-primary{
+      background: var(--navy);
+      color:#fff;
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 10px 18px rgba(0,0,128,.25);
+    }
+
+    .note{
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(2,6,23,.10);
+      border-radius: 14px;
+      background: rgba(2,6,23,.02);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    /* Request form */
+    .form{
+      margin-top: 12px;
+      display:grid;
+      gap:10px;
+    }
+    .row2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width:720px){ .row2{ grid-template-columns: 1fr; } }
+
+    .label{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      letter-spacing:.4px;
+      text-transform:uppercase;
+      margin-bottom:6px;
+      display:block;
+    }
+    .input, select, textarea{
+      width:100%;
+      border-radius:12px;
+      border:1px solid rgba(2,6,23,.10);
+      padding:10px 12px;
+      outline:none;
+      font-weight:800;
+      background:#fff;
+      color:var(--text);
+    }
+    textarea{ min-height: 92px; resize: vertical; font-weight:700; }
+    .input:focus, select:focus, textarea:focus{
+      border-color: rgba(0,0,128,.35);
+      box-shadow: 0 0 0 4px rgba(0,0,128,.08);
+    }
+    .help{
+      font-size:12px;
+      color: var(--muted);
+      line-height:1.45;
+      margin-top:6px;
+    }
+  </style>
+
+  <div class="page">
+    <div class="hero">
+      <h3>Choose a Home Internet plan</h3>
+      <p>
+        These are monthly plans for your home connection. Pick a speed and request installation — we’ll contact you to set up.
+      </p>
+    </div>
+
+    {# -------------------------
+       Plans grid (friendly)
+       ------------------------- #}
+    <div class="grid">
+      {% for p in plans %}
+        <div class="cardx">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <span class="badge" title="{{ p.tier }}">
+              <span class="dot"></span> {{ p.tier }}
+            </span>
+
+            {% if p.speed %}
+              <span class="badge" title="Speed">{{ p.speed }} Mbps</span>
+            {% endif %}
+          </div>
+
+          <div class="speed">
+            {% if p.speed %}{{ p.speed }} Mbps{% else %}Home Internet{% endif %}
+          </div>
+
+          <div class="price">
+            KES {{ p.price_kes }} <span class="per">/ month</span>
+          </div>
+
+          <div class="bullets">
+            <div>• Monthly plan</div>
+            <div>• Suitable for home & small office</div>
+            <div>• Support available during setup</div>
+          </div>
+
+          <div class="cta">
+            {# Pay requires an existing account (authenticated) #}
+            <a class="btnx btnx-primary" href="{{ url_for('main.home_internet_accounts') }}">
+              Pay (Existing Customers)
+            </a>
+
+            <span class="muted" style="font-size:12px; font-weight:900;">
+              Already connected? Pay after login.
+            </span>
+          </div>
+        </div>
+      {% else %}
+        <div class="muted">No Home Internet plans available.</div>
+      {% endfor %}
+    </div>
+
+    {# -------------------------
+       Request form (public landing)
+       ------------------------- #}
+    <div class="cardx" style="margin-top:12px;">
+      <div style="font-weight:950; color:var(--navy);">Request Home Internet Installation</div>
+      <div class="help">
+        Fill this form and our team will contact you to confirm location and schedule installation.
+      </div>
+
+      <form class="form" method="post" action="{{ url_for('main.home_internet_request') }}">
+        <div class="row2">
+          <div>
+            <label class="label">Full name</label>
+            <input class="input" name="name" placeholder="Your name" required>
+          </div>
+          <div>
+            <label class="label">Phone number</label>
+            <input class="input" name="phone" placeholder="0712345678" inputmode="numeric" autocomplete="tel" required>
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label class="label">Your area / estate</label>
+            <input class="input" name="area" placeholder="e.g. Kahawa West / Ruaka / Syokimau" required>
+          </div>
+          <div>
+            <label class="label">Preferred speed</label>
+            <select name="preferred_plan" required>
+              <option value="" disabled selected>Select a speed</option>
+              {% for p in plans %}
+                <option value="{{ p.code }}">
+                  {% if p.speed %}{{ p.speed }} Mbps{% else %}Home Internet{% endif %} — KES {{ p.price_kes }}/month
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="label">More details (optional)</label>
+          <textarea name="notes" placeholder="Apartment name, house number, landmark, preferred installation time…"></textarea>
+          <div class="help">This helps us locate you faster during installation.</div>
+        </div>
+
+        <div class="cta">
+          <button class="btnx btnx-primary" type="submit">Submit Request</button>
+          <span class="muted" style="font-size:12px; font-weight:900;">
+            No payment needed until installation is confirmed.
+          </span>
+        </div>
+      </form>
+    </div>
+
+    <div class="note">
+      <b>Note:</b> Wi-Fi Hotspot customers don’t have accounts. Home Internet customers can pay after login using
+      their phone or account number.
+    </div>
+  </div>
+{% endblock %}

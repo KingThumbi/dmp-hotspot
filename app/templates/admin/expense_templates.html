@@ -1,68 +1,258 @@
 {% extends "admin/base.html" %}
 {% block title %}Expense Templates{% endblock %}
+{% block header %}Expense Templates{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">Reusable expense presets (name, category, default amount) to speed up recording.</p>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.dashboard_finance') }}">← Back</a>
+  <a class="btn" href="{{ url_for('admin.expense_categories_list') }}">Categories</a>
+  <a class="btn btn-primary" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
+{% endblock %}
 
 {% block content %}
-  <h2 style="margin:0 0 10px 0;">Expense Templates</h2>
+  <style>
+    .panel{
+      background: var(--card, #fff);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      overflow:hidden;
+    }
+    .panel-head{
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .panel-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+      line-height:1.2;
+    }
+    .panel-subtitle{
+      margin-top:4px;
+      font-size:12px;
+      color: var(--muted);
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
 
-  <div class="card" style="margin-bottom:12px;">
-    <form method="post" action="{{ url_for('admin.expense_templates_create') }}" class="row" style="gap:10px; align-items:end; flex-wrap:wrap;">
-      <div style="min-width:240px; flex:1;">
-        <label class="muted">Template Name</label>
-        <input class="input" name="name" placeholder="e.g. KPLC Bill / Office Rent" required />
-      </div>
+    .form{
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
 
-      <div style="min-width:240px;">
-        <label class="muted">Category</label>
-        <select class="input" name="category_id" required>
-          <option value="">— Select —</option>
-          {% for c in categories %}
-            <option value="{{ c.id }}">
-              {% if c.parent %}{{ c.parent.name }} → {% endif %}{{ c.name }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap:12px;
+      align-items:end;
+    }
 
-      <div style="min-width:160px;">
-        <label class="muted">Default Amount (KES)</label>
-        <input class="input" name="default_amount" placeholder="optional" />
-      </div>
+    .field{
+      grid-column: span 12;
+      min-width: 0;
+    }
 
-      <div style="min-width:260px; flex:1;">
-        <label class="muted">Notes</label>
-        <input class="input" name="notes" placeholder="optional notes" />
-      </div>
+    .field label{
+      display:block;
+      font-size:12px;
+      font-weight:900;
+      color: var(--muted);
+      margin-bottom:6px;
+    }
 
+    .table-wrap{
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 860px;
+    }
+
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align:left;
+      font-size:11px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      padding:10px 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td{
+      padding:11px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      background:#fff;
+      white-space: nowrap;
+    }
+    tbody tr:hover td{ background: rgba(0,0,0,.015); }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .truncate{
+      max-width: 420px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space: nowrap;
+      display:inline-block;
+      vertical-align: bottom;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.02);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.1;
+      white-space: nowrap;
+    }
+    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
+    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
+
+    @media (min-width: 900px){
+      .span-5{ grid-column: span 5; }
+      .span-4{ grid-column: span 4; }
+      .span-3{ grid-column: span 3; }
+      .span-2{ grid-column: span 2; }
+    }
+  </style>
+
+  <section class="panel" style="margin-bottom:12px;">
+    <div class="panel-head">
       <div>
-        <button class="btn primary" type="submit">Add Template</button>
+        <h3 class="panel-title">Add Template</h3>
+        <div class="panel-subtitle">
+          <span>Templates speed up recording and reduce errors</span>
+        </div>
       </div>
-    </form>
-  </div>
+      <div class="panel-subtitle" style="justify-content:flex-end;">
+        <span class="mono">{{ templates|length }} total</span>
+      </div>
+    </div>
 
-  <div class="card">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Category</th>
-          <th>Name</th>
-          <th>Default</th>
-          <th>Active</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in templates %}
-        <tr>
-          <td>{{ t.id }}</td>
-          <td>
-            {% if t.category.parent %}{{ t.category.parent.name }} → {% endif %}{{ t.category.name }}
-          </td>
-          <td>{{ t.name }}</td>
-          <td>{{ t.default_amount if t.default_amount is not none else "-" }}</td>
-          <td>{{ "Yes" if t.is_active else "No" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="form">
+      <form method="post" action="{{ url_for('admin.expense_templates_create') }}">
+        <div class="grid">
+          <div class="field span-5">
+            <label>Template Name</label>
+            <input class="input" name="name" placeholder="e.g. KPLC Bill / Office Rent" required />
+          </div>
+
+          <div class="field span-4">
+            <label>Category</label>
+            <select class="input" name="category_id" required>
+              <option value="">— Select —</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}">
+                  {% if c.parent %}{{ c.parent.name }} → {% endif %}{{ c.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field span-3">
+            <label>Default Amount (KES)</label>
+            <input class="input" name="default_amount" placeholder="optional" />
+          </div>
+
+          <div class="field span-5">
+            <label>Notes</label>
+            <input class="input" name="notes" placeholder="optional notes" />
+          </div>
+
+          <div class="field span-2" style="display:flex; justify-content:flex-end;">
+            <button class="btn primary" type="submit">Add Template</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3 class="panel-title">All Templates</h3>
+        <div class="panel-subtitle">
+          <span>Use these in “Record Expense” for one-click fill</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:80px;">ID</th>
+            <th>Category</th>
+            <th>Name</th>
+            <th style="width:160px; text-align:right;">Default</th>
+            <th style="width:120px;">Active</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in templates %}
+            <tr>
+              <td class="mono">{{ t.id }}</td>
+
+              <td>
+                <span class="truncate"
+                      title="{% if t.category.parent %}{{ t.category.parent.name }} → {% endif %}{{ t.category.name }}">
+                  {% if t.category.parent %}{{ t.category.parent.name }} → {% endif %}{{ t.category.name }}
+                </span>
+              </td>
+
+              <td>
+                <span class="truncate" title="{{ t.name }}">{{ t.name }}</span>
+              </td>
+
+              <td class="mono" style="text-align:right;">
+                {% if t.default_amount is not none %}
+                  KES {{ t.default_amount }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+
+              <td>
+                {% if t.is_active %}
+                  <span class="pill pill--ok">Yes</span>
+                {% else %}
+                  <span class="pill pill--bad">No</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 {% endblock %}

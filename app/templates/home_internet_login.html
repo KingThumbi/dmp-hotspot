@@ -1,0 +1,100 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Home Internet Login{% endblock %}
+{% block header %}Home Internet{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">
+    Sign in to manage and pay for your Home Internet accounts.
+  </p>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .login-wrap{
+      max-width:420px;
+      margin:0 auto;
+    }
+    .card{
+      padding:20px;
+    }
+    .field{
+      display:grid;
+      gap:6px;
+    }
+    .field label{
+      font-size:12px;
+      font-weight:900;
+      color:var(--muted);
+    }
+    .field input{
+      width:100%;
+      height:44px;
+      padding:0 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+    }
+    .field input:focus{
+      outline:none;
+      border-color:rgba(0,0,128,.35);
+      box-shadow:0 0 0 4px rgba(0,0,128,.08);
+    }
+    .actions{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:flex-end;
+      margin-top:14px;
+    }
+  </style>
+
+  <div class="login-wrap">
+    <form method="post" class="card">
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, msg in messages %}
+            <div class="pill {% if category=='error' %}failed{% else %}success{% endif %}" style="margin-bottom:10px;">
+              {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="field">
+        <label>Email or Phone Number</label>
+        <input
+          type="text"
+          name="identifier"
+          placeholder="e.g. user@email.com or 0712345678"
+          required
+          autocomplete="username"
+        />
+      </div>
+
+      <div class="field" style="margin-top:12px;">
+        <label>Password</label>
+        <input
+          type="password"
+          name="password"
+          placeholder="Your password"
+          required
+          autocomplete="current-password"
+        />
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">
+          Sign In
+        </button>
+      </div>
+
+      <div class="muted" style="margin-top:14px; font-size:12px;">
+        This login is for Home Internet customers only.<br>
+        Hotspot users do not need to sign in.
+      </div>
+
+    </form>
+  </div>
+{% endblock %}

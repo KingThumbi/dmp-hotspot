@@ -1,82 +1,349 @@
 {% extends "admin/base.html" %}
 {% block title %}Customer{% endblock %}
+{% block header %}Customer{% endblock %}
+
+{% block page_subtitle %}
+  <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+    <span class="mono" style="font-size:12px;">{{ customer.phone }}</span>
+    <span style="opacity:.65;">•</span>
+    <span>Customer since {{ customer.created_at }}</span>
+    <span style="opacity:.65;">•</span>
+    <span class="mono" style="font-size:12px;">ID: {{ customer.id }}</span>
+  </div>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.customers') }}">← Back</a>
+  <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Locations</a>
+  <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get', customer_id=customer.id) }}">New Ticket</a>
+{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <h2 style="margin:0;">{{ customer.phone }}</h2>
-        <div class="muted">Customer since {{ customer.created_at }}</div>
+  <style>
+    /* -------------------------------------------------------
+       Customer Detail — Dashboard-grade table + layout polish
+       (HTML-only: no backend assumptions, no variable changes)
+    -------------------------------------------------------- */
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .page-grid{
+      display:grid;
+      gap:12px;
+    }
+
+    .panel{
+      background: var(--card, #fff);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      overflow:hidden;
+    }
+
+    .panel-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+    }
+
+    .panel-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+      line-height:1.2;
+    }
+
+    .panel-subtitle{
+      margin-top:4px;
+      font-size:12px;
+      color: var(--muted);
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    .panel-actions{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    /* Responsive table wrapper */
+    .table-wrap{
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 760px; /* ensures columns don't crush */
+    }
+
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align:left;
+      font-size:11px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      padding:10px 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td{
+      padding:11px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      background:#fff;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover td{
+      background: rgba(0,0,0,.015);
+    }
+
+    /* Safe text handling for long values */
+    .truncate{
+      max-width: 260px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space: nowrap;
+      display:inline-block;
+      vertical-align: bottom;
+    }
+
+    .wrap{
+      white-space: normal !important;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    /* Small helper pills (reuse existing .pill if defined in base) */
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.02);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.1;
+      white-space: nowrap;
+    }
+
+    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
+    .pill--warn{ border-color: rgba(255,165,0,.35); background: rgba(255,165,0,.10); }
+    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
+    .pill--info{ border-color: rgba(0,0,128,.25); background: rgba(0,0,128,.06); }
+
+    .muted2{ color: var(--muted); opacity:.9; }
+
+    /* Empty state inside panels */
+    .empty{
+      padding:14px;
+      color: var(--muted);
+      font-size:13px;
+    }
+
+    /* Mobile: allow panels to breathe */
+    @media (max-width: 720px){
+      table{ min-width: 860px; } /* allow horizontal scroll instead of crushing */
+      .panel-head{ align-items:flex-start; }
+    }
+  </style>
+
+  <div class="page-grid">
+
+    <!-- ======================= Subscriptions ======================= -->
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Subscriptions</h3>
+          <div class="panel-subtitle">
+            <span>Active services linked to this customer</span>
+            <span style="opacity:.65;">•</span>
+            <span class="mono">{{ subs|length }} total</span>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Manage Locations</a>
+          <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get', customer_id=customer.id) }}">Open Ticket</a>
+        </div>
       </div>
-      <a href="{{ url_for('admin.customers') }}" style="text-decoration:none;">← Back</a>
-    </div>
-  </div>
 
-  <div style="height:12px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Service</th>
+              <th>Status</th>
+              <th>Package</th>
+              <th>User</th>
+              <th>Starts</th>
+              <th>Expires</th>
+              <th>Last Tx</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in subs %}
+              <tr>
+                <td class="mono muted2"><span class="truncate" title="{{ s.id }}">{{ s.id }}</span></td>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Subscriptions</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Status</th>
-          <th>Package</th>
-          <th>User</th>
-          <th>Starts</th>
-          <th>Expires</th>
-          <th>Last Tx</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in subs %}
-          <tr>
-            <td class="muted">{{ s.id }}</td>
-            <td><span class="pill">{{ s.status }}</span></td>
-            <td>{{ s.package.code if s.package else s.package_id }}</td>
-            <td>{{ s.router_username }}</td>
-            <td class="muted">{{ s.starts_at or "-" }}</td>
-            <td class="muted">{{ s.expires_at or "-" }}</td>
-            <td class="muted">{{ s.last_tx_id or "-" }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="7" class="muted">No subscriptions yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+                <td>
+                  <span class="pill pill--info" title="{{ s.service_type }}">{{ s.service_type }}</span>
+                </td>
 
-  <div style="height:12px;"></div>
+                {# keep backend values unchanged; styling is defensive #}
+                {% set st = (s.status|string)|lower %}
+                <td>
+                  {% if 'active' in st or 'enabled' in st %}
+                    <span class="pill pill--ok" title="{{ s.status }}">{{ s.status }}</span>
+                  {% elif 'expired' in st or 'disabled' in st or 'blocked' in st %}
+                    <span class="pill pill--bad" title="{{ s.status }}">{{ s.status }}</span>
+                  {% else %}
+                    <span class="pill pill--warn" title="{{ s.status }}">{{ s.status }}</span>
+                  {% endif %}
+                </td>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Transactions</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Status</th>
-          <th>Amount</th>
-          <th>Package</th>
-          <th>Checkout</th>
-          <th>Receipt</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in txs %}
-          <tr>
-            <td class="muted">{{ t.id }}</td>
-            <td><span class="pill">{{ t.status }}</span></td>
-            <td>{{ t.amount }}</td>
-            <td>{{ t.package.code if t.package else t.package_id }}</td>
-            <td class="muted">{{ t.checkout_request_id or "-" }}</td>
-            <td>{{ t.mpesa_receipt or "-" }}</td>
-            <td class="muted">{{ t.created_at }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="7" class="muted">No transactions yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+                <td class="mono">
+                  <span class="truncate" title="{{ s.package.code if s.package else s.package_id }}">
+                    {{ s.package.code if s.package else s.package_id }}
+                  </span>
+                </td>
+
+                <td class="mono">
+                  <span class="truncate" title="{{ sub_identity(s) or '-' }}">
+                    {{ sub_identity(s) or "-" }}
+                  </span>
+                </td>
+
+                <td class="muted2">
+                  <span class="truncate" title="{{ s.starts_at or '-' }}">{{ s.starts_at or "-" }}</span>
+                </td>
+
+                <td class="muted2">
+                  <span class="truncate" title="{{ s.expires_at or '-' }}">{{ s.expires_at or "-" }}</span>
+                </td>
+
+                <td class="muted2 mono">
+                  <span class="truncate" title="{{ s.last_tx_id or '-' }}">{{ s.last_tx_id or "-" }}</span>
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="8" style="padding:0;">
+                  <div class="empty">No subscriptions yet.</div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======================= Transactions ======================= -->
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Transactions</h3>
+          <div class="panel-subtitle">
+            <span>Payments and billing history</span>
+            <span style="opacity:.65;">•</span>
+            <span class="mono">{{ txs|length }} total</span>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <a class="btn" href="{{ url_for('admin.customers') }}">All Customers</a>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Amount</th>
+              <th>Package</th>
+              <th>Checkout</th>
+              <th>Receipt</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in txs %}
+              <tr>
+                <td class="mono muted2"><span class="truncate" title="{{ t.id }}">{{ t.id }}</span></td>
+
+                {% set ts = (t.status|string)|lower %}
+                <td>
+                  {% if 'success' in ts or 'completed' in ts or 'paid' in ts %}
+                    <span class="pill pill--ok" title="{{ t.status }}">{{ t.status }}</span>
+                  {% elif 'failed' in ts or 'cancel' in ts or 'timeout' in ts %}
+                    <span class="pill pill--bad" title="{{ t.status }}">{{ t.status }}</span>
+                  {% else %}
+                    <span class="pill pill--warn" title="{{ t.status }}">{{ t.status }}</span>
+                  {% endif %}
+                </td>
+
+                <td class="mono">
+                  <span class="truncate" title="{{ t.amount }}">KES {{ t.amount }}</span>
+                </td>
+
+                <td class="mono">
+                  <span class="truncate" title="{{ t.package.code if t.package else t.package_id }}">
+                    {{ t.package.code if t.package else t.package_id }}
+                  </span>
+                </td>
+
+                <td class="mono muted2">
+                  <span class="truncate" title="{{ t.checkout_request_id or '-' }}">
+                    {{ t.checkout_request_id or "-" }}
+                  </span>
+                </td>
+
+                <td class="mono">
+                  <span class="truncate" title="{{ t.mpesa_receipt or '-' }}">
+                    {{ t.mpesa_receipt or "-" }}
+                  </span>
+                </td>
+
+                <td class="muted2">
+                  <span class="truncate" title="{{ t.created_at }}">{{ t.created_at }}</span>
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="7" style="padding:0;">
+                  <div class="empty">No transactions yet.</div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
   </div>
 {% endblock %}

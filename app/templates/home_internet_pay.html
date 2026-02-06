@@ -1,0 +1,297 @@
+{% extends "admin/base.html" %}
+{% block title %}Home Internet Payment{% endblock %}
+{% block header %}Home Internet{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted" style="margin:0;">
+    Pay your monthly bill or change your plan. Upgrades apply immediately. Downgrades apply at the next renewal.
+  </p>
+{% endblock %}
+
+{% block content %}
+  {# ---------------------------------------------------------
+     Compatibility layer:
+     Support both styles:
+       A) vm dict: vm.account_no, vm.current_price, vm.plans, etc.
+       B) direct: sub, plans, amount_due, selected_code, action/mode, phone_value
+     --------------------------------------------------------- #}
+
+  {# Always prefer sub.id for account number (true account id) #}
+  {% if sub is defined and sub.id is defined %}
+    {% set _account_no = "D%03d"|format(sub.id) %}
+  {% else %}
+    {% set _account_no = (vm.account_no if vm is defined and vm.account_no is defined else "D—") %}
+  {% endif %}
+
+  {% set _status = (vm.status if vm is defined and vm.status is defined else (sub.status or "")) %}
+  {% set _expires_at = (vm.expires_at if vm is defined and vm.expires_at is defined else (sub.expires_at if sub is defined else None)) %}
+  {% set _starts_at = (vm.starts_at if vm is defined and vm.starts_at is defined else (sub.starts_at if sub is defined else None)) %}
+
+  {% set _current_speed = (vm.current_speed if vm is defined and vm.current_speed is defined else None) %}
+  {% set _current_price = (vm.current_price if vm is defined and vm.current_price is defined else (sub.package.price_kes if sub is defined and sub.package else 0)) %}
+  {% set _current_name = (vm.current_pkg_name if vm is defined and vm.current_pkg_name is defined else (sub.package.name if sub is defined and sub.package else "Home Internet")) %}
+
+  {% set _plans = (vm.plans if vm is defined and vm.plans is defined else plans) %}
+  {% set _selected_code = (selected_code if selected_code is defined else (vm.current_pkg_code if vm is defined and vm.current_pkg_code is defined else "")) %}
+  {% set _amount_due = (amount_due if amount_due is defined else 0) %}
+
+  {# mode/action naming differences #}
+  {% set _mode = None %}
+  {% if mode is defined %}{% set _mode = mode %}{% endif %}
+  {% if action is defined %}{% set _mode = action %}{% endif %}
+
+  {% set _phone = (phone_value if phone_value is defined else (phone if phone is defined else "")) %}
+
+  {# Pending scheduled downgrade (only if your model defines pending_package) #}
+  {% set _pending = None %}
+  {% if sub is defined and sub.pending_package is defined and sub.pending_package %}
+    {% set _pending = sub.pending_package %}
+  {% endif %}
+
+  <style>
+    .wrap{ max-width:760px; }
+
+    .cardx{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow: var(--shadow-sm);
+      overflow:hidden;
+    }
+
+    .head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+    }
+    .head h3{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+      letter-spacing:.2px;
+      color: var(--navy);
+    }
+    .head p{
+      margin:6px 0 0 0;
+      color: var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      max-width: 62ch;
+    }
+
+    .body{ padding:16px; display:grid; gap:12px; }
+
+    .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    @media (max-width:720px){ .grid2{ grid-template-columns: 1fr; } }
+
+    .label{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      letter-spacing:.4px;
+      text-transform:uppercase;
+    }
+    .value{ font-weight:950; color:#111827; margin-top:4px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:950;
+      border:1px solid rgba(2,6,23,.10);
+      background: rgba(2,6,23,.02);
+      white-space:nowrap;
+    }
+    .pill--ok{
+      border-color: rgba(16,185,129,0.30);
+      background: rgba(16,185,129,0.10);
+    }
+    .pill--warn{
+      border-color: rgba(245,158,11,0.30);
+      background: rgba(245,158,11,0.10);
+    }
+
+    .input, select{
+      width:100%;
+      height:42px;
+      border-radius:12px;
+      border:1px solid rgba(2,6,23,.10);
+      padding:0 12px;
+      outline:none;
+      font-weight:800;
+      background:#fff;
+      color:var(--text);
+    }
+    .input:focus, select:focus{
+      border-color: rgba(0,0,128,.35);
+      box-shadow: 0 0 0 4px rgba(0,0,128,.08);
+    }
+
+    .help{ font-size:12px; color: var(--muted); line-height:1.45; }
+
+    .divider{ border:none; border-top:1px solid rgba(2,6,23,.08); margin: 2px 0; }
+
+    .actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:2px; }
+
+    .btnx{
+      border-radius:14px;
+      font-weight:900;
+      border: 1px solid rgba(2,6,23,.10);
+      padding:10px 14px;
+      cursor:pointer;
+      user-select:none;
+      background:#e5e7eb;
+      color:#111827;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .btnx-primary{
+      background: var(--navy);
+      color:#fff;
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 10px 18px rgba(0,0,128,.25);
+    }
+
+    .notice{
+      border:1px solid rgba(2,6,23,.10);
+      border-radius:14px;
+      padding:12px 14px;
+      background: rgba(2,6,23,.02);
+    }
+  </style>
+
+  <div class="wrap">
+    <div class="cardx">
+
+      <div class="head">
+        <h3>Confirm payment</h3>
+        <p>
+          We’ll send a payment prompt to your phone. You can use a different phone for this payment (we won’t save it).
+        </p>
+      </div>
+
+      <div class="body">
+
+        <div class="grid2">
+          <div>
+            <div class="label">Account</div>
+            <div class="value mono">{{ _account_no }}</div>
+            <div class="help" style="margin-top:6px;">
+              This account is linked to your Home Internet line.
+            </div>
+          </div>
+
+          <div>
+            <div class="label">Status</div>
+            <div class="value" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              {% set st = (_status or "—")|lower %}
+              <span class="pill {% if st == 'active' %}pill--ok{% elif st in ['pending','expired'] %}pill--warn{% endif %}">{{ st }}</span>
+
+              {% if _expires_at %}
+                <span class="pill">Expires: {{ _expires_at }}</span>
+              {% endif %}
+            </div>
+
+            {% if _starts_at %}
+              <div class="help" style="margin-top:6px;">Started: {{ _starts_at }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="notice">
+          <div class="label">Current plan</div>
+          <div class="value" style="margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <span style="color:var(--navy); font-weight:950;">{{ _current_name }}</span>
+            {% if _current_speed %}
+              <span class="pill">{{ _current_speed }} Mbps</span>
+            {% endif %}
+            <span class="pill">KES {{ _current_price }} / month</span>
+          </div>
+
+          {% if _pending %}
+            <div class="help" style="margin-top:10px;">
+              <b>Scheduled change:</b>
+              Your plan will switch at renewal to <b>{{ _pending.name }}</b>.
+            </div>
+          {% endif %}
+        </div>
+
+        <form method="post" style="display:grid; gap:12px;">
+
+          <div>
+            <div class="label">Choose plan</div>
+
+            <select name="{% if vm is defined %}pkg_code{% else %}plan_code{% endif %}">
+              {% for p in _plans %}
+                {% if p is mapping %}
+                  <option value="{{ p.code }}" {% if p.code == _selected_code %}selected{% endif %}>{{ p.label }}</option>
+                {% else %}
+                  <option value="{{ p.code }}" {% if p.code == _selected_code %}selected{% endif %}>
+                    {{ p.speed }} Mbps — KES {{ p.price_kes }} / month
+                  </option>
+                {% endif %}
+              {% endfor %}
+            </select>
+
+            <div class="help" style="margin-top:6px;">
+              Upgrades apply immediately (you pay a pro-rated difference). Downgrades apply at your next renewal.
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div>
+              <div class="label">Amount due now</div>
+              <div class="value" style="font-size:18px; color:var(--navy);">KES {{ _amount_due }}</div>
+
+              <div class="help" style="margin-top:6px;">
+                {% if _mode in ["upgrade_prorated", "upgrade_now"] %}
+                  This amount is calculated based on the remaining time in your current month.
+                {% elif _mode in ["downgrade_scheduled"] %}
+                  No payment is needed to schedule a downgrade. We’ll apply it at renewal.
+                {% elif _mode in ["renew_extend"] %}
+                  Paying now will extend your current expiry (it will not reset).
+                {% else %}
+                  This is your monthly payment for the selected plan.
+                {% endif %}
+              </div>
+            </div>
+
+            <div>
+              <div class="label">Phone to prompt</div>
+              <input
+                class="input"
+                name="phone"
+                value="{{ _phone }}"
+                placeholder="0712345678"
+                inputmode="numeric"
+                autocomplete="tel"
+              />
+              <div class="help" style="margin-top:6px;">
+                Use the number you want to receive the prompt on.
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            {% if _mode in ["downgrade_scheduled"] %}
+              <button type="submit" class="btnx btnx-primary">Schedule change</button>
+            {% else %}
+              <button type="submit" class="btnx btnx-primary">Send payment prompt</button>
+            {% endif %}
+
+            <a class="btnx" href="{{ url_for('main.home_internet_page') }}">Back</a>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+{% endblock %}

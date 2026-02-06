@@ -1,0 +1,137 @@
+{% extends "admin/base.html" %}
+{% block title %}Assets{% endblock %}
+{% block header %}Assets{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">Track company assets (routers, CPEs, tools) and their assignment status.</p>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0 10px; }
+    th{ text-align:left; font-size:12px; color: var(--muted); font-weight:900; }
+
+    td{
+      padding:10px 12px;
+      background:#fff;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      vertical-align:middle;
+    }
+
+    tr td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:12px;
+      border-bottom-left-radius:12px;
+    }
+    tr td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:12px;
+      border-bottom-right-radius:12px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .pill.available{ background:#ecfdf3; color:#027a48; }
+    .pill.assigned{ background:#eff8ff; color:#175cd3; }
+    .pill.faulty{ background:#fef3f2; color:#b42318; }
+    .pill.retired{ background:#f2f4f7; color:#344054; }
+
+    .actions a{
+      font-size:12px;
+      text-decoration:none;
+      margin-right:8px;
+      color:var(--primary);
+    }
+  </style>
+
+  <div class="topbar">
+    <div class="muted">
+      {{ assets|length }} asset{{ '' if assets|length == 1 else 's' }} recorded
+    </div>
+
+    {# Button is future-safe even if route not implemented yet #}
+    <div>
+      <a href="#" class="btn btn-sm btn-primary" title="Coming soon">
+        + New Asset
+      </a>
+    </div>
+  </div>
+
+  {% if not assets %}
+    <div class="panel">
+      <p class="muted">No assets recorded yet.</p>
+      <p class="muted">
+        Assets help track deployed routers, customer CPEs, and company equipment.
+      </p>
+    </div>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:80px;">ID</th>
+          <th style="width:140px;">Type</th>
+          <th>Brand / Model</th>
+          <th style="width:180px;">Serial</th>
+          <th style="width:140px;">Status</th>
+          <th style="width:200px;">Assigned Customer</th>
+          <th style="width:140px; text-align:right;">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for a in assets %}
+          <tr>
+            <td class="mono muted">{{ a.id }}</td>
+
+            <td>
+              <span class="pill">{{ a.asset_type }}</span>
+            </td>
+
+            <td>
+              {{ a.brand or "-" }}
+              {% if a.model %}
+                · {{ a.model }}
+              {% endif %}
+            </td>
+
+            <td class="mono">{{ a.serial_number or "-" }}</td>
+
+            <td>
+              <span class="pill {{ a.status }}">
+                {{ a.status }}
+              </span>
+            </td>
+
+            <td class="mono">
+              {% if a.customer %}
+                <a href="{{ url_for('admin.customer_detail', customer_id=a.customer.id) }}">
+                  {{ a.customer.phone }}
+                </a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+            <td class="actions" style="text-align:right;">
+              <a href="#" title="Edit asset (coming soon)">Edit</a>
+              <a href="#" title="Assign / unassign (coming soon)">Assign</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

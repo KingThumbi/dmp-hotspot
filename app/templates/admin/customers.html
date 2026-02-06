@@ -1,86 +1,206 @@
+{# app/templates/admin/customers.html #}
 {% extends "admin/base.html" %}
 {% block title %}Customers{% endblock %}
+{% block header %}Customers{% endblock %}
+
+{% block page_actions %}
+  <form method="GET" class="row" style="gap:8px; align-items:center;">
+    <input
+      name="q"
+      value="{{ q }}"
+      placeholder="Search phone..."
+      style="padding:10px 12px; border-radius:12px; border:1px solid var(--border); outline:none;"
+    />
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if q %}
+      <a class="btn" href="{{ url_for('admin.customers') }}">Reset</a>
+    {% endif %}
+  </form>
+{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <div class="row" style="justify-content:space-between;">
-      <h2 style="margin:0;">Customers</h2>
+  <style>
+    .meta{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      margin: 6px 0 12px 0;
+    }
+    .meta .count{ font-size:12px; font-weight:900; color: var(--muted); }
+    .muted2{ color: var(--muted); font-size:12px; }
 
-      <form method="GET" class="row">
-        <input name="q" value="{{ q }}" placeholder="Search phone..." />
-        <button type="submit">Search</button>
-      </form>
+    .tablewrap{ overflow:auto; }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0 10px;
+      min-width: 1050px;
+    }
+    th{
+      text-align:left;
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      padding: 0 12px 6px 12px;
+      white-space:nowrap;
+    }
+    tbody tr{
+      background:#fff;
+      border:1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      border-radius:12px;
+      transition: transform .06s ease, border-color .2s ease;
+    }
+    tbody tr:hover{
+      transform: translateY(-1px);
+      border-color: rgba(0,0,128,0.20);
+    }
+    td{
+      padding:10px 12px;
+      background:#fff;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+    tr td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:12px;
+      border-bottom-left-radius:12px;
+    }
+    tr td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:12px;
+      border-bottom-right-radius:12px;
+    }
+
+    .actions{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+    .btn-sm{ padding:8px 10px; font-size:12px; }
+
+    .pill{
+      font-size:11px;
+      font-weight:900;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .pill.pending{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+    .pill.active{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
+    .pill.expired{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
+
+    .pill.success{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
+    .pill.failed{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
+    .pill.pendingtx{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+
+    .right{ text-align:right; }
+  </style>
+
+  <div class="meta">
+    <div class="count">
+      Showing <b>{{ rows|length }}</b> customer(s)
+      {% if q %}
+        <span class="muted2">· search: “{{ q }}”</span>
+      {% endif %}
     </div>
-
-    <table style="margin-top:10px;">
-      <thead>
-        <tr>
-          <th>Phone</th>
-          <th>Customer Since</th>
-          <th>Latest Subscription</th>
-          <th>Package</th>
-          <th>Expires</th>
-          <th>Last Tx</th>
-          <th>Receipt</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c, s, t in rows %}
-          <tr>
-            <td><strong>{{ c.phone }}</strong></td>
-            <td class="muted">{{ c.created_at }}</td>
-
-            <td>
-              {% if s %}
-                <span class="pill">{{ s.status }}</span>
-              {% else %}
-                <span class="muted">-</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {% if s and s.package %}
-                {{ s.package.code }}
-              {% elif s %}
-                {{ s.package_id }}
-              {% else %}
-                <span class="muted">-</span>
-              {% endif %}
-            </td>
-
-            <td class="muted">
-              {% if s %}
-                {{ s.expires_at or "-" }}
-              {% else %}
-                -
-              {% endif %}
-            </td>
-
-            <td>
-              {% if t %}
-                <span class="pill">{{ t.status }}</span>
-              {% else %}
-                <span class="muted">-</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {{ t.mpesa_receipt if t and t.mpesa_receipt else "-" }}
-            </td>
-
-            <td style="text-align:right;">
-              <a href="{{ url_for('admin.customer_detail', customer_id=c.id) }}" style="text-decoration:none;">
-                View →
-              </a>
-            </td>
-          </tr>
-        {% else %}
-          <tr>
-            <td colspan="8" class="muted">No customers found.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="muted2">Tip: Use Locations for installs/relocations, and New Ticket for support work.</div>
   </div>
+
+  {% if not rows %}
+    <div class="card">
+      <div class="muted">No customers found{% if q %} for “{{ q }}”{% endif %}.</div>
+    </div>
+  {% else %}
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Phone</th>
+            <th>Customer Since</th>
+            <th>Latest Subscription</th>
+            <th>Package</th>
+            <th>Expires</th>
+            <th>Last Tx</th>
+            <th>Receipt</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for c, s, t in rows %}
+            {% set sub_status = (s.status if s else '') %}
+            {% set tx_status = (t.status if t else '') %}
+
+            <tr>
+              <td><strong class="mono">{{ c.phone }}</strong></td>
+              <td class="muted mono">{{ c.created_at }}</td>
+
+              <td>
+                {% if s %}
+                  <span class="pill {{ sub_status }}">{{ sub_status }}</span>
+                {% else %}
+                  <span class="muted2">—</span>
+                {% endif %}
+              </td>
+
+              <td class="mono">
+                {% if s and s.package %}
+                  {{ s.package.code }}
+                {% elif s %}
+                  #{{ s.package_id }}
+                {% else %}
+                  <span class="muted2">—</span>
+                {% endif %}
+              </td>
+
+              <td class="muted mono">
+                {% if s %}
+                  {{ s.expires_at or "-" }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>
+                {% if t %}
+                  {% if tx_status == "pending" %}
+                    <span class="pill pendingtx">pending</span>
+                  {% elif tx_status == "success" %}
+                    <span class="pill success">success</span>
+                  {% elif tx_status == "failed" %}
+                    <span class="pill failed">failed</span>
+                  {% else %}
+                    <span class="pill">{{ tx_status }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="muted2">—</span>
+                {% endif %}
+              </td>
+
+              <td class="mono">
+                {{ t.mpesa_receipt if t and t.mpesa_receipt else "-" }}
+              </td>
+
+              <td class="right">
+                <div class="actions">
+                  <a class="btn btn-sm" href="{{ url_for('admin.customer_detail', customer_id=c.id) }}">View</a>
+                  <a class="btn btn-sm" href="{{ url_for('admin.customer_locations', customer_id=c.id) }}">Locations</a>
+                  <a class="btn btn-primary btn-sm" href="{{ url_for('admin.ticket_new_get', customer_id=c.id) }}">New Ticket</a>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 {% endblock %}

@@ -1,0 +1,346 @@
+{# app/templates/admin/tickets_list.html #}
+{% extends "admin/base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block header %}Tickets{% endblock %}
+
+{% block page_actions %}
+  <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get') }}">+ New Ticket</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .toolbar{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom: 12px;
+    }
+
+    .filters{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      flex: 1 1 auto;
+      min-width: 280px;
+    }
+
+    label{
+      font-size:12px;
+      font-weight:900;
+      display:block;
+      margin-bottom:6px;
+      color: var(--muted);
+    }
+
+    input, select{
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:#fff;
+      font-size:13px;
+      min-width: 160px;
+      outline: none;
+    }
+
+    input:focus, select:focus{
+      border-color: rgba(0,0,128,0.25);
+      box-shadow: 0 0 0 4px rgba(0,0,128,0.06);
+    }
+
+    .quick{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+      flex: 0 0 auto;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      font-size:12px;
+      font-weight:900;
+      box-shadow: var(--shadow-sm);
+      transition: transform .06s ease, border-color .2s ease;
+      text-decoration:none;
+      color: inherit;
+    }
+    .chip:hover{ transform: translateY(-1px); border-color: rgba(0,0,128,0.22); }
+    .chip.active{
+      border-color: rgba(0,0,128,0.22);
+      background: rgba(0,0,128,0.06);
+      color: var(--navy);
+    }
+
+    .meta{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      margin: 10px 0 0 0;
+    }
+
+    .meta .count{
+      font-size:12px;
+      font-weight:900;
+      color: var(--muted);
+    }
+
+    .tablewrap{ margin-top: 12px; overflow:auto; }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0 10px;
+      min-width: 980px;
+    }
+
+    thead th{
+      text-align:left;
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      padding: 0 12px 6px 12px;
+      white-space:nowrap;
+    }
+
+    tbody tr{
+      background:#fff;
+      border:1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      border-radius: 12px;
+      transition: transform .06s ease, border-color .2s ease;
+    }
+
+    tbody tr:hover{
+      transform: translateY(-1px);
+      border-color: rgba(0,0,128,0.20);
+    }
+
+    tbody td{
+      padding: 12px;
+      font-size:13px;
+      vertical-align: top;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+    }
+
+    tbody td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:12px;
+      border-bottom-left-radius:12px;
+    }
+
+    tbody td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:12px;
+      border-bottom-right-radius:12px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .pill{
+      font-size:11px;
+      font-weight:900;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+
+    .pill.open{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+    .pill.assigned{ border-color: rgba(59,130,246,0.35); background: rgba(59,130,246,0.10); }
+    .pill.in_progress{ border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.10); }
+    .pill.waiting_customer{ border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.10); }
+    .pill.resolved{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
+    .pill.closed{ border-color: rgba(107,114,128,0.35); background: rgba(107,114,128,0.10); }
+    .pill.cancelled{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
+
+    .muted2{ color: var(--muted); font-size:12px; }
+    .truncate{ max-width: 340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+
+    /* Make filter field widths behave nicely on small screens */
+    .filters > div{ min-width: 160px; }
+    .filters > div.actions{ min-width: auto; }
+  </style>
+
+  {# current_user may exist in base.html; we re-guard anyway #}
+  {% set me = current_user if (current_user and current_user.is_authenticated) else None %}
+  {% set my_id = me.id if me else None %}
+
+  <div class="toolbar">
+    <form class="filters" method="get" action="{{ url_for('admin.tickets') }}">
+      <div>
+        <label>Search</label>
+        <input name="q" value="{{ q }}" placeholder="Code, subject, phone, PPPoE, hotspot...">
+      </div>
+
+      <div>
+        <label>Status</label>
+        <select name="status">
+          <option value="" {% if not status %}selected{% endif %}>All</option>
+          {% for s in ["open","assigned","in_progress","waiting_customer","resolved","closed","cancelled"] %}
+            <option value="{{ s }}" {% if status==s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>Priority</label>
+        <select name="priority">
+          <option value="" {% if not priority %}selected{% endif %}>All</option>
+          {% for p in ["low","med","high","urgent"] %}
+            <option value="{{ p }}" {% if priority==p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>Category</label>
+        <select name="category">
+          <option value="" {% if not category %}selected{% endif %}>All</option>
+          {% for c in ["outage","relocation","installation","billing","speed","hardware","other"] %}
+            <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {# ✅ Assigned-to filter (AFFIXED CLEANLY) #}
+      <div>
+        <label>Assigned To</label>
+        <select name="assigned_to">
+          <option value="" {% if not assigned_to %}selected{% endif %}>Anyone</option>
+          <option value="me" {% if assigned_to=='me' %}selected{% endif %}>Me</option>
+          {% for u in techs %}
+            <option value="{{ u.id }}" {% if assigned_to == (u.id|string) %}selected{% endif %}>
+              {{ u.email }} ({{ u.role }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn" href="{{ url_for('admin.tickets') }}">Reset</a>
+      </div>
+    </form>
+
+    <div class="quick">
+      {# Quick filters should PRESERVE assigned_to where possible #}
+      <a class="chip {% if not status and not priority and not category and not q and not assigned_to %}active{% endif %}"
+         href="{{ url_for('admin.tickets') }}">All</a>
+
+      <a class="chip {% if status=='open' %}active{% endif %}"
+         href="{{ url_for('admin.tickets', status='open', assigned_to=assigned_to, priority=priority, category=category, q=q) }}">Open</a>
+
+      <a class="chip {% if status=='assigned' %}active{% endif %}"
+         href="{{ url_for('admin.tickets', status='assigned', assigned_to=assigned_to, priority=priority, category=category, q=q) }}">Assigned</a>
+
+      <a class="chip {% if priority=='urgent' %}active{% endif %}"
+         href="{{ url_for('admin.tickets', priority='urgent', assigned_to=assigned_to, status=status, category=category, q=q) }}">Urgent</a>
+
+      {% if my_id %}
+        <a class="chip {% if assigned_to=='me' %}active{% endif %}"
+           href="{{ url_for('admin.tickets', assigned_to='me', status=status, priority=priority, category=category, q=q) }}">
+          Mine
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="count">
+      Showing <b>{{ tickets|length }}</b> ticket(s)
+      {% if status or priority or category or q or assigned_to %}
+        <span class="muted2">· filtered</span>
+      {% endif %}
+    </div>
+
+    <div class="muted2">
+      Tip: click a ticket code to open the timeline + actions.
+    </div>
+  </div>
+
+  {% if not tickets %}
+    <div style="margin-top:12px;" class="muted">No tickets found.</div>
+  {% else %}
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Customer</th>
+            <th>Category</th>
+            <th>Subject</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Assigned</th>
+            <th>Updated (UTC)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tickets %}
+            {% set st = (t.status or '')|lower %}
+            <tr>
+              <td class="mono">
+                <a href="{{ url_for('admin.ticket_detail', ticket_id=t.id) }}">{{ t.code }}</a>
+              </td>
+
+              <td class="mono">
+                <a href="{{ url_for('admin.customer_detail', customer_id=t.customer_id) }}">
+                  {{ t.customer.phone if t.customer else ('#' ~ t.customer_id) }}
+                </a>
+              </td>
+
+              <td>
+                <span class="pill">{{ t.category or "-" }}</span>
+              </td>
+
+              <td>
+                <span class="truncate" title="{{ t.subject }}">{{ t.subject }}</span>
+                {% if t.description %}
+                  <div class="muted2 truncate" title="{{ t.description }}">{{ t.description }}</div>
+                {% endif %}
+              </td>
+
+              <td>
+                <span class="pill {{ st }}">{{ st or "-" }}</span>
+              </td>
+
+              <td>
+                <span class="pill">{{ t.priority or "-" }}</span>
+              </td>
+
+              <td class="muted2">
+                {% if t.assigned_to_admin_id %}
+                  #{{ t.assigned_to_admin_id }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td class="muted2">{{ t.updated_at }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}

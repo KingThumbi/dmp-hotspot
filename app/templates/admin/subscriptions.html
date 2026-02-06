@@ -3,156 +3,421 @@
 {% block title %}Subscriptions{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px;">
-      <div style="min-width:240px;">
-        <h2 style="margin:0;">Subscriptions</h2>
-        <div class="muted" style="margin-top:6px;">
-          View and manage Hotspot and PPPoE subscriptions.
+  <style>
+    /* -------------------------------------------------------
+       Subscriptions — Dashboard-grade layout + safe tables
+       (HTML-only, preserves routes/vars)
+    -------------------------------------------------------- */
+
+    .stack{ display:flex; flex-direction:column; gap:12px; }
+
+    .cardx{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      overflow:hidden;
+    }
+    .cardx-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+    }
+    .cardx-title{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .cardx-sub{
+      margin:6px 0 0 0;
+      font-size:12px;
+      color: var(--muted);
+      max-width: 90ch;
+      line-height:1.45;
+    }
+    .cardx-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    .toolbar{
+      padding:12px 16px 14px;
+      border-bottom:1px solid var(--border);
+      background: rgba(2,6,23,.012);
+    }
+    .toolbar-row{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .filters{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      flex: 1;
+      min-width: 260px;
+    }
+    .filters .field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width: 160px;
+    }
+    .filters .field.grow{ flex:1; min-width: 220px; }
+    .filters label{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      letter-spacing:.4px;
+      text-transform: uppercase;
+      margin:0;
+    }
+    .filters input, .filters select{
+      width:100%;
+    }
+
+    .toolbar-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .link-reset{
+      text-decoration:none;
+      font-weight:900;
+      color: var(--muted);
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid transparent;
+    }
+    .link-reset:hover{
+      border-color: rgba(2,6,23,.10);
+      background: rgba(2,6,23,.03);
+      color: var(--text);
+    }
+
+    .table-wrap{
+      padding: 10px 12px 14px;
+      overflow-x:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-wrap::-webkit-scrollbar{ height:10px; }
+    .table-wrap::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.12); border-radius:999px; }
+    .table-wrap::-webkit-scrollbar-track{ background: rgba(0,0,0,.04); border-radius:999px; }
+
+    table{
+      width:100%;
+      min-width: 1080px; /* stable + scroll on small screens */
+      border-collapse: separate;
+      border-spacing: 0 10px;
+    }
+    thead th{
+      text-align:left;
+      font-size:12px;
+      color: var(--muted);
+      font-weight:900;
+      padding: 0 10px 4px;
+      white-space:nowrap;
+    }
+    tbody td{
+      padding:10px 12px;
+      background:#fff;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      vertical-align: middle;
+    }
+    tbody tr td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:14px;
+      border-bottom-left-radius:14px;
+    }
+    tbody tr td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:14px;
+      border-bottom-right-radius:14px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .cell-trunc{
+      max-width: 240px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      display:inline-block;
+      vertical-align:bottom;
+    }
+
+    .subuser{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .subuser strong{
+      font-weight:950;
+      letter-spacing:.1px;
+      max-width: 260px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .subuser small{
+      color: var(--muted);
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:.2px;
+      text-transform: lowercase;
+    }
+
+    .row-expired td{
+      background: rgba(239,68,68,0.06);
+      border-top-color: rgba(239,68,68,0.12);
+      border-bottom-color: rgba(239,68,68,0.12);
+    }
+    .row-expired td:first-child{ border-left-color: rgba(239,68,68,0.12); }
+    .row-expired td:last-child{ border-right-color: rgba(239,68,68,0.12); }
+
+    .actions{
+      display:inline-flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      align-items:center;
+    }
+    .btn-sm{
+      padding:8px 10px;
+      font-size:12px;
+      border-radius:12px;
+    }
+
+    .empty{
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tip{
+      padding: 12px 16px 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 720px){
+      .cardx-head{ padding:12px 12px; }
+      .toolbar{ padding: 10px 12px 12px; }
+      .table-wrap{ padding: 8px 10px 12px; }
+      table{ min-width: 1040px; }
+      .cell-trunc{ max-width: 200px; }
+    }
+  </style>
+
+  <div class="stack">
+
+    <section class="cardx">
+      <div class="cardx-head">
+        <div>
+          <h2 class="cardx-title">Subscriptions</h2>
+          <div class="cardx-sub">
+            View and manage Hotspot and PPPoE subscriptions.
+          </div>
+        </div>
+
+        <div class="cardx-actions">
+          {% if svc == "pppoe" %}
+            <a class="btn btn-primary" href="{{ url_for('admin.pppoe_new') }}">+ New PPPoE</a>
+          {% endif %}
         </div>
       </div>
 
-      <div class="row" style="gap:10px;">
-        {% if svc == "pppoe" %}
-          <a class="navlink" href="{{ url_for('admin.pppoe_new') }}">+ New PPPoE</a>
-        {% endif %}
+      <div class="toolbar">
+        <form method="GET">
+          <div class="toolbar-row">
+            <div class="filters">
+
+              <div class="field grow" style="min-width:260px;">
+                <label for="q">Search</label>
+                <input
+                  id="q"
+                  name="q"
+                  value="{{ q }}"
+                  placeholder="Search phone / D### / DA#### ..."
+                />
+              </div>
+
+              <div class="field">
+                <label for="svc">Service</label>
+                <select id="svc" name="svc">
+                  <option value="">All services</option>
+                  <option value="hotspot" {% if svc=='hotspot' %}selected{% endif %}>hotspot</option>
+                  <option value="pppoe" {% if svc=='pppoe' %}selected{% endif %}>pppoe</option>
+                </select>
+              </div>
+
+              <div class="field" style="min-width:200px;">
+                <label for="pkg">Package</label>
+                <select id="pkg" name="pkg">
+                  <option value="">All packages</option>
+                  {% for code in pkg_codes %}
+                    <option value="{{ code }}" {% if pkg==code %}selected{% endif %}>{{ code }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                  <option value="">All status</option>
+                  <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
+                  <option value="active" {% if status=='active' %}selected{% endif %}>active</option>
+                  <option value="expired" {% if status=='expired' %}selected{% endif %}>expired</option>
+                </select>
+              </div>
+
+            </div>
+
+            <div class="toolbar-actions">
+              <button type="submit" class="btn btn-primary">Filter</button>
+              <a class="link-reset" href="{{ url_for('admin.subscriptions') }}">Reset</a>
+            </div>
+          </div>
+        </form>
       </div>
-    </div>
 
-    <hr style="border:none; border-top:1px solid rgba(2,6,23,.08); margin:14px 0;">
+      {% if items and items|length %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:70px;">ID</th>
+                <th style="width:120px;">Service</th>
+                <th style="width:240px;">User</th>
+                <th style="width:150px;">Package</th>
+                <th style="width:120px;">Status</th>
+                <th style="width:170px;">Expires</th>
+                <th style="width:140px;">Remaining</th>
+                <th style="width:90px;">Last Tx</th>
+                <th style="width:240px; text-align:right;">Action</th>
+              </tr>
+            </thead>
 
-    <form method="GET" class="row" style="justify-content:space-between; gap:10px;">
-      <div class="row" style="gap:10px; flex:1; min-width:260px;">
-        <input
-          name="q"
-          value="{{ q }}"
-          placeholder="Search phone / D### / DA#### ..."
-          style="flex:1; min-width:220px;"
-        />
+            <tbody>
+              {% for it in items %}
+                {% set s = it.s %}
+                {% set svc_type = (s.service_type or "")|lower %}
+                {% set username = it.identity or s.router_username or "-" %}
 
-        <select name="svc" style="min-width:160px;">
-          <option value="">All services</option>
-          <option value="hotspot" {% if svc=='hotspot' %}selected{% endif %}>hotspot</option>
-          <option value="pppoe" {% if svc=='pppoe' %}selected{% endif %}>pppoe</option>
-        </select>
+                <tr class="{% if it.is_expired %}row-expired{% endif %}">
+                  <td class="muted mono">
+                    <span class="cell-trunc" title="{{ s.id }}">{{ s.id }}</span>
+                  </td>
 
-        <select name="pkg" style="min-width:200px;">
-          <option value="">All packages</option>
-          {% for code in pkg_codes %}
-            <option value="{{ code }}" {% if pkg==code %}selected{% endif %}>{{ code }}</option>
-          {% endfor %}
-        </select>
+                  <td class="muted">
+                    <span class="pill" title="{{ svc_type or '-' }}">
+                      <span class="cell-trunc" style="max-width:140px;">{{ svc_type or "-" }}</span>
+                    </span>
+                  </td>
 
-        <select name="status" style="min-width:160px;">
-          <option value="">All status</option>
-          <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
-          <option value="active" {% if status=='active' %}selected{% endif %}>active</option>
-          <option value="expired" {% if status=='expired' %}selected{% endif %}>expired</option>
-        </select>
-      </div>
+                  <td>
+                    <div class="subuser">
+                      <strong title="{{ username }}">{{ username }}</strong>
+                      {% if svc_type == "hotspot" and s.hotspot_username %}
+                        <small>phone</small>
+                      {% elif svc_type == "pppoe" and s.pppoe_username %}
+                        <small>pppoe</small>
+                      {% else %}
+                        <small class="muted">—</small>
+                      {% endif %}
+                    </div>
+                  </td>
 
-      <div class="row" style="gap:10px;">
-        <button type="submit">Filter</button>
-        <a href="{{ url_for('admin.subscriptions') }}" style="text-decoration:none;">Reset</a>
-      </div>
-    </form>
+                  <td class="mono">
+                    {% if s.package %}
+                      <span class="cell-trunc" title="{{ s.package.name }}">{{ s.package.code }}</span>
+                    {% else %}
+                      <span class="cell-trunc" title="{{ s.package_id }}">{{ s.package_id }}</span>
+                    {% endif %}
+                  </td>
 
-    <div class="table-wrap" style="margin-top:12px;">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:70px;">ID</th>
-            <th style="width:120px;">Service</th>
-            <th style="width:190px;">User</th>
-            <th style="width:150px;">Package</th>
-            <th style="width:120px;">Status</th>
-            <th style="width:170px;">Expires</th>
-            <th style="width:140px;">Remaining</th>
-            <th style="width:90px;">Last Tx</th>
-            <th style="width:190px; text-align:right;">Action</th>
-          </tr>
-        </thead>
+                  <td>
+                    {% set st = (s.status or "")|lower %}
+                    <span class="pill {% if st=='success' %}success{% elif st=='pending' %}pending{% elif st=='failed' %}failed{% endif %}"
+                          title="{{ st or '-' }}">
+                      <span class="cell-trunc" style="max-width:140px;">{{ st or "-" }}</span>
+                    </span>
+                  </td>
 
-        <tbody>
-          {% for it in items %}
-            {% set s = it.s %}
-            {% set svc_type = (s.service_type or "")|lower %}
-            {% set username = it.identity or s.router_username or "-" %}
+                  <td class="muted mono">
+                    {% if s.expires_at %}
+                      <span class="cell-trunc" title="{{ s.expires_at }}">{{ s.expires_at }}</span>
+                    {% else %}
+                      <span class="cell-trunc" title="-">-</span>
+                    {% endif %}
+                  </td>
 
-            <tr style="{% if it.is_expired %}background:#fff5f5;{% endif %}">
-              <td class="muted">{{ s.id }}</td>
+                  <td>
+                    {% if it.remaining == "Expired" %}
+                      <span class="pill failed">Expired</span>
+                    {% else %}
+                      <span class="pill" title="{{ it.remaining }}">
+                        <span class="cell-trunc" style="max-width:140px;">{{ it.remaining }}</span>
+                      </span>
+                    {% endif %}
+                  </td>
 
-              <td class="muted">
-                <span class="pill">{{ svc_type or "-" }}</span>
-              </td>
+                  <td class="muted mono">
+                    <span class="cell-trunc" title="{{ s.last_tx_id or '-' }}">{{ s.last_tx_id or "-" }}</span>
+                  </td>
 
-              <td>
-                <strong class="truncate" style="max-width:170px;" title="{{ username }}">{{ username }}</strong>
-                {% if svc_type == "hotspot" and s.hotspot_username %}
-                  <div class="muted" style="font-size:12px; margin-top:3px;">phone</div>
-                {% elif svc_type == "pppoe" and s.pppoe_username %}
-                  <div class="muted" style="font-size:12px; margin-top:3px;">pppoe</div>
-                {% endif %}
-              </td>
+                  <td style="text-align:right;">
+                    <div class="actions">
 
-              <td>
-                {% if s.package %}
-                  <span class="truncate" title="{{ s.package.name }}">{{ s.package.code }}</span>
-                {% else %}
-                  {{ s.package_id }}
-                {% endif %}
-              </td>
+                      {# Create ticket prefilled (Phase B) #}
+                      <a class="btn btn-primary btn-sm"
+                         href="{{ url_for('admin.ticket_new_get', customer_id=s.customer_id, subscription_id=s.id) }}">
+                        Create Ticket
+                      </a>
 
-              <td>
-                {% set st = (s.status or "")|lower %}
-                <span class="pill {% if st=='success' %}success{% elif st=='pending' %}pending{% elif st=='failed' %}failed{% endif %}">
-                  {{ st or "-" }}
-                </span>
-              </td>
+                      {# Existing router enable #}
+                      {% if s.status == "active" and s.expires_at and not it.is_expired %}
+                        <form method="POST"
+                              action="{{ url_for('admin.subscription_enable', sub_id=s.id) }}"
+                              style="display:inline;">
+                          <button type="submit" class="btn btn-sm" style="font-weight:900;">
+                            Enable on Router
+                          </button>
+                        </form>
+                      {% else %}
+                        <span class="muted" style="align-self:center;">—</span>
+                      {% endif %}
 
-              <td class="muted">
-                {% if s.expires_at %}
-                  <span class="truncate" title="{{ s.expires_at }}">{{ s.expires_at }}</span>
-                {% else %}
-                  -
-                {% endif %}
-              </td>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty">No subscriptions found.</div>
+      {% endif %}
 
-              <td>
-                {% if it.remaining == "Expired" %}
-                  <span class="pill failed">Expired</span>
-                {% else %}
-                  <span class="pill">{{ it.remaining }}</span>
-                {% endif %}
-              </td>
+      {% if svc == "pppoe" %}
+        <div class="tip">
+          Tip: Use <b>+ New PPPoE</b> to create a PPPoE subscription, then <b>Enable on Router</b> if router automation is enabled.
+        </div>
+      {% endif %}
+    </section>
 
-              <td class="muted">{{ s.last_tx_id or "-" }}</td>
-
-              <td style="text-align:right;">
-                {% if s.status == "active" and s.expires_at and not it.is_expired %}
-                  <form method="POST"
-                        action="{{ url_for('admin.subscription_enable', sub_id=s.id) }}"
-                        style="display:inline;">
-                    <button type="submit">Enable on Router</button>
-                  </form>
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
-              </td>
-            </tr>
-          {% else %}
-            <tr>
-              <td colspan="9" class="muted">No subscriptions found.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if svc == "pppoe" %}
-      <div class="muted" style="margin-top:12px; font-size:12px;">
-        Tip: Use <b>+ New PPPoE</b> to create a PPPoE subscription, then <b>Enable on Router</b> if router automation is enabled.
-      </div>
-    {% endif %}
   </div>
 {% endblock %}

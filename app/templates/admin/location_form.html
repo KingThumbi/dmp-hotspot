@@ -1,0 +1,106 @@
+{% extends "admin/base.html" %}
+{% block title %}Location{% endblock %}
+{% block header %}{{ "New Location" if mode=="new" else "Edit Location" }}{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">{{ customer.phone }} · Store install location details (DB keeps history).</p>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Back</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .form{ display:grid; gap:12px; max-width: 780px; }
+    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 720px){ .row{ grid-template-columns: 1fr; } }
+    label{ font-size:12px; font-weight:900; display:block; margin-bottom:6px; }
+    input, textarea{
+      width:100%;
+      padding:10px 12px;
+      border-radius: 12px;
+      border:1px solid var(--border);
+      outline:none;
+      font-size: 13px;
+      background:#fff;
+    }
+    textarea{ min-height: 100px; resize: vertical; }
+    .hint{ font-size:12px; color: var(--muted); margin-top:6px; }
+    .check{ display:flex; gap:10px; align-items:center; }
+  </style>
+
+  {% if mode == "new" %}
+    <form class="form" method="post" action="{{ url_for('admin.customer_location_new_post', customer_id=customer.id) }}">
+  {% else %}
+    <form class="form" method="post" action="{{ url_for('admin.customer_location_edit_post', location_id=loc.id) }}">
+  {% endif %}
+
+    <div class="row">
+      <div>
+        <label>Label</label>
+        <input name="label" placeholder="Home / Office / Shop" value="{{ loc.label if loc else '' }}">
+      </div>
+      <div>
+        <label>Apartment Name</label>
+        <input name="apartment_name" placeholder="e.g., Sunrise Apartments" value="{{ loc.apartment_name if loc else '' }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>House No</label>
+        <input name="house_no" placeholder="e.g., A-12" value="{{ loc.house_no if loc else '' }}">
+      </div>
+      <div>
+        <label>Estate</label>
+        <input name="estate" placeholder="e.g., Kahawa West" value="{{ loc.estate if loc else '' }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Town</label>
+        <input name="town" placeholder="e.g., Nairobi" value="{{ loc.town if loc else '' }}">
+      </div>
+      <div>
+        <label>County</label>
+        <input name="county" placeholder="e.g., Nairobi" value="{{ loc.county if loc else '' }}">
+      </div>
+    </div>
+
+    <div>
+      <label>Landmark</label>
+      <input name="landmark" placeholder="Nearby reference point" value="{{ loc.landmark if loc else '' }}">
+    </div>
+
+    <div class="row">
+      <div>
+        <label>GPS Latitude</label>
+        <input name="gps_lat" placeholder="-1.2921" value="{{ loc.gps_lat if loc and loc.gps_lat else '' }}">
+      </div>
+      <div>
+        <label>GPS Longitude</label>
+        <input name="gps_lng" placeholder="36.8219" value="{{ loc.gps_lng if loc and loc.gps_lng else '' }}">
+      </div>
+    </div>
+
+    <div>
+      <label>Notes</label>
+      <textarea name="notes" placeholder="Install notes, contacts, access details...">{{ loc.notes if loc else '' }}</textarea>
+    </div>
+
+    {% if mode == "new" %}
+      <div class="check">
+        <input type="checkbox" name="make_active" id="make_active">
+        <label for="make_active" style="margin:0;">Make this the active location</label>
+      </div>
+      <div class="hint">DB enforces one active location per customer.</div>
+    {% endif %}
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn btn-primary" type="submit">{{ "Save Location" if mode=="new" else "Update Location" }}</button>
+      <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

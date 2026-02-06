@@ -7,70 +7,171 @@ Add a new admin, finance, ops, or support user.
 {% endblock %}
 
 {% block content %}
+  <style>
+    /* -------------------------------------------------------
+       Create User — Dashboard-grade form card
+       (HTML-only, preserves routes/vars/blocks)
+    -------------------------------------------------------- */
 
-<form method="post" class="card" style="max-width:520px;">
+    .wrap{
+      display:flex;
+      justify-content:flex-start;
+    }
 
-  <div style="display:grid; gap:12px;">
+    .cardx{
+      width:100%;
+      max-width:560px;
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      overflow:hidden;
+    }
 
-    <div>
-      <label class="muted small">Full name (optional)</label>
-      <input
-        type="text"
-        name="name"
-        class="input"
-        placeholder="Jane Doe"
-        style="width:100%; padding:10px;"
-      />
-    </div>
+    .cardx-head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+    }
+    .cardx-head h3{
+      margin:0;
+      font-size:14px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .cardx-head p{
+      margin:6px 0 0 0;
+      font-size:12px;
+      color: var(--muted);
+      line-height:1.45;
+      max-width: 80ch;
+    }
 
-    <div>
-      <label class="muted small">Email *</label>
-      <input
-        type="email"
-        name="email"
-        required
-        class="input"
-        placeholder="user@dmpolinconnect.co.ke"
-        style="width:100%; padding:10px;"
-      />
-    </div>
+    .cardx-body{ padding:16px; }
 
-    <div>
-      <label class="muted small">Role *</label>
-      <select
-        name="role"
-        required
-        class="input"
-        style="width:100%; padding:10px;"
-      >
-        <option value="support">Support</option>
-        <option value="ops">Operations</option>
-        <option value="finance">Finance</option>
-        <option value="admin">Admin</option>
-      </select>
-    </div>
+    .grid{
+      display:grid;
+      gap:12px;
+    }
 
-    <div>
-      <label class="muted small">Initial password *</label>
-      <input
-        type="password"
-        name="password"
-        required
-        class="input"
-        placeholder="Minimum 12 characters"
-        style="width:100%; padding:10px;"
-      />
-      <div class="muted small" style="margin-top:6px;">
-        Must include uppercase, lowercase, number, and symbol.
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .field label{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      letter-spacing:.4px;
+      text-transform: uppercase;
+    }
+
+    .help{
+      margin-top:6px;
+      font-size:12px;
+      color: var(--muted);
+      line-height:1.45;
+    }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:6px;
+    }
+    .btn-sm{
+      padding:10px 12px;
+      border-radius:12px;
+      font-weight:900;
+    }
+
+    @media (max-width: 720px){
+      .cardx-body{ padding:14px; }
+    }
+  </style>
+
+  <div class="wrap">
+    <form method="post" class="cardx">
+
+      <div class="cardx-head">
+        <h3>User Details</h3>
+        <p>
+          Create a system user with the correct role. You can disable/enable users later from the list.
+        </p>
       </div>
-    </div>
 
-    <div style="display:flex; gap:10px; margin-top:10px;">
-      <button type="submit" class="btnlink">Create User</button>
-      <a href="{{ url_for('admin.users_list') }}" class="btnlink secondary">Cancel</a>
-    </div>
+      <div class="cardx-body">
+        <div class="grid">
 
+          <div class="field">
+            <label for="name">Full name</label>
+            <input
+              id="name"
+              type="text"
+              name="name"
+              class="input"
+              placeholder="Jane Doe (optional)"
+              style="width:100%; padding:10px;"
+            />
+          </div>
+
+          <div class="field">
+            <label for="email">Email *</label>
+            <input
+              id="email"
+              type="email"
+              name="email"
+              required
+              class="input"
+              placeholder="user@dmpolinconnect.co.ke"
+              style="width:100%; padding:10px;"
+              autocomplete="email"
+            />
+          </div>
+
+          <div class="field">
+            <label for="role">Role *</label>
+            <select
+              id="role"
+              name="role"
+              required
+              class="input"
+              style="width:100%; padding:10px;"
+            >
+              <option value="support">Support</option>
+              <option value="ops">Operations</option>
+              <option value="finance">Finance</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="password">Initial password *</label>
+            <input
+              id="password"
+              type="password"
+              name="password"
+              required
+              class="input"
+              placeholder="Minimum 12 characters"
+              style="width:100%; padding:10px;"
+              autocomplete="new-password"
+            />
+            <div class="help">
+              Must include uppercase, lowercase, number, and symbol.
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary btn-sm">Create User</button>
+            <a href="{{ url_for('admin.users_list') }}" class="btn btn-sm">Cancel</a>
+          </div>
+
+        </div>
+      </div>
+
+    </form>
   </div>
-</form>
-
 {% endblock %}

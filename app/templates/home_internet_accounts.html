@@ -1,0 +1,172 @@
+{# app/templates/home_internet_accounts.html #}
+{% extends "admin/base.html" %}
+
+{% block title %}My Home Internet Accounts{% endblock %}
+{% block header %}Home Internet{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted" style="margin:0;">
+    Select an account to pay or change your plan.
+  </p>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .wrap{ max-width: 860px; }
+    .grid{
+      margin-top: 12px;
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .cardx{
+      background:#fff;
+      border:1px solid rgba(2,6,23,.10);
+      border-radius:16px;
+      box-shadow: 0 8px 18px rgba(2,6,23,.06);
+      padding: 14px;
+      overflow:hidden;
+    }
+    .top{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+      font-weight:950;
+      color:#111827;
+    }
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 10px; border-radius:999px;
+      font-size:11px; font-weight:950;
+      border:1px solid rgba(2,6,23,.10);
+      background: rgba(2,6,23,.02);
+      white-space:nowrap;
+    }
+    .pill--ok{ border-color: rgba(16,185,129,0.30); background: rgba(16,185,129,0.10); }
+    .pill--warn{ border-color: rgba(245,158,11,0.30); background: rgba(245,158,11,0.10); }
+
+    .name{
+      margin-top: 10px;
+      font-size: 16px;
+      font-weight: 950;
+      color: var(--navy);
+      letter-spacing: .2px;
+      line-height: 1.2;
+    }
+    .meta{
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      display:flex;
+      flex-direction:column;
+      gap: 4px;
+    }
+    .cta{
+      margin-top: 12px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .btnx{
+      border-radius:14px;
+      font-weight:900;
+      border: 1px solid rgba(2,6,23,.10);
+      padding:10px 14px;
+      cursor:pointer;
+      user-select:none;
+      background:#e5e7eb;
+      color:#111827;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .btnx-primary{
+      background: var(--navy);
+      color:#fff;
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 10px 18px rgba(0,0,128,.25);
+    }
+    .note{
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(2,6,23,.10);
+      border-radius: 14px;
+      background: rgba(2,6,23,.02);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      max-width: 78ch;
+    }
+  </style>
+
+  <div class="wrap">
+    {% if accounts and accounts|length > 0 %}
+      <div class="grid">
+        {% for a in accounts %}
+          <div class="cardx">
+            <div class="top">
+              <div class="mono">{{ a.account_no }}</div>
+
+              {% set st = (a.status or "—")|lower %}
+              <span class="pill {% if st == 'active' %}pill--ok{% elif st in ['pending','expired'] %}pill--warn{% endif %}">
+                {{ st }}
+              </span>
+            </div>
+
+            <div class="name">
+              {% if a.speed_mbps %}
+                {{ a.speed_mbps }} Mbps Home Internet
+              {% else %}
+                Home Internet
+              {% endif %}
+            </div>
+
+            <div class="meta">
+              <div>Plan: <b>{{ a.plan_name }}</b> — <b>KES {{ a.price_kes }}</b> / month</div>
+
+              {% if a.expires_at %}
+                <div>Expires: <b>{{ a.expires_at }}</b></div>
+              {% else %}
+                <div>Expires: <b>—</b></div>
+              {% endif %}
+
+              {% if a.pending_plan_name %}
+                <div><b>Scheduled change:</b> {{ a.pending_plan_name }} (applies at renewal)</div>
+              {% endif %}
+            </div>
+
+            <div class="cta">
+              <a class="btnx btnx-primary" href="{{ url_for('main.home_internet_pay', account_id=a.id) }}">
+                Pay / Manage
+              </a>
+              <a class="btnx" href="{{ url_for('main.home_internet_page') }}">Plans</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="note">
+        Tip: Each Home Internet line has its own account number (D001, D002…). Payments and plan changes happen per account.
+      </div>
+    {% else %}
+      <div class="card" style="padding:14px;">
+        <div style="font-weight:950; color:var(--navy);">No Home Internet accounts found</div>
+        <div class="muted" style="margin-top:6px;">
+          If you’re new, request connection from the plans page.
+        </div>
+        <div style="margin-top:12px;">
+          <a class="btnlink" href="{{ url_for('main.home_internet_page') }}">Back to Plans</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

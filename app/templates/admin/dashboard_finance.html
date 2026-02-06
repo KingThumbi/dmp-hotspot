@@ -2,140 +2,309 @@
 {% extends "admin/base.html" %}
 
 {% block title %}Finance Dashboard{% endblock %}
+{% block header %}Finance{% endblock %}
+
+{% block page_subtitle %}
+  <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+    <span>As of {{ now_eat.strftime("%Y-%m-%d %H:%M:%S") }} (EAT)</span>
+    <span style="opacity:.65;">•</span>
+    <span>DB time is UTC</span>
+    {% if this_month and this_month.start_eat and this_month.end_eat_inclusive %}
+      <span style="opacity:.65;">•</span>
+      <span class="mono" style="font-size:12px;">
+        Current window: {{ this_month.start_eat.strftime("%Y-%m-%d") }} → {{ this_month.end_eat_inclusive.strftime("%Y-%m-%d") }} (EAT)
+      </span>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.dashboard') }}">← Back</a>
+  <a class="btn" href="{{ url_for('admin.transactions') }}">Transactions</a>
+  <a class="btn btn-primary" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
+{% endblock %}
 
 {% block content %}
+  <style>
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
 
-  <div class="row" style="align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;">
-    <div>
-      <h2 style="margin:0;">Finance Dashboard</h2>
+    .panel{
+      background: var(--card, #fff);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      overflow:hidden;
+    }
 
-      <div class="muted" style="margin-top:4px; font-size:12px;">
-        As of {{ now_eat.strftime("%Y-%m-%d %H:%M:%S") }} (EAT) · DB time is UTC
-      </div>
+    .panel-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+    }
 
-      {% if this_month and this_month.start_eat and this_month.end_eat_inclusive %}
-        <div class="muted" style="margin-top:2px; font-size:12px;">
-          Current window: {{ this_month.start_eat.strftime("%Y-%m-%d") }} → {{ this_month.end_eat_inclusive.strftime("%Y-%m-%d") }} (EAT)
+    .panel-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+      line-height:1.2;
+    }
+
+    .panel-subtitle{
+      margin-top:4px;
+      font-size:12px;
+      color: var(--muted);
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    .toolbar{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      justify-content:space-between;
+      padding:12px 14px;
+    }
+
+    .toolbar .group{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+    }
+
+    .label{
+      display:block;
+      font-size:12px;
+      font-weight:900;
+      color: var(--muted);
+      margin-bottom:6px;
+    }
+
+    .input{
+      width:100%;
+    }
+
+    .table-wrap{
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 620px;
+    }
+
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align:left;
+      font-size:11px;
+      color: var(--muted);
+      font-weight:900;
+      letter-spacing:.35px;
+      text-transform: uppercase;
+      padding:10px 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td{
+      padding:11px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      background:#fff;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover td{ background: rgba(0,0,0,.015); }
+
+    .truncate{
+      max-width: 280px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space: nowrap;
+      display:inline-block;
+      vertical-align: bottom;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.02);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.1;
+      white-space: nowrap;
+    }
+
+    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
+    .pill--warn{ border-color: rgba(255,165,0,.35); background: rgba(255,165,0,.10); }
+    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
+
+    .cards{
+      display:grid;
+      gap:12px;
+      grid-template-columns: repeat(4, minmax(220px, 1fr));
+    }
+
+    @media (max-width: 1100px){
+      .cards{ grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+    }
+    @media (max-width: 640px){
+      .cards{ grid-template-columns: 1fr; }
+    }
+
+    .kpi{
+      padding:12px 14px;
+    }
+
+    .kpi .kpi-label{
+      font-size:12px;
+      color: var(--muted);
+    }
+
+    .kpi .kpi-value{
+      margin-top:6px;
+      font-size:22px;
+      font-weight:900;
+      letter-spacing:.2px;
+    }
+
+    .kpi .kpi-foot{
+      margin-top:6px;
+      font-size:12px;
+      color: var(--muted);
+    }
+
+    .empty{
+      padding:14px;
+      color: var(--muted);
+      font-size:13px;
+    }
+  </style>
+
+  {# =========================
+     Filters / Presets / Export
+     ========================= #}
+  <section class="panel" style="margin-bottom:12px;">
+    <div class="panel-head">
+      <div>
+        <h3 class="panel-title">Date Range</h3>
+        <div class="panel-subtitle">
+          <span>Choose a preset or set a custom window</span>
+          <span style="opacity:.65;">•</span>
+          <span class="mono">{{ start_str }} → {{ end_str }}</span>
         </div>
-      {% endif %}
+      </div>
+      <div class="panel-subtitle" style="justify-content:flex-end;">
+        <a class="btn" href="{{ url_for('admin.dashboard_finance_csv', start=start_str, end=end_str) }}">Download CSV</a>
+      </div>
     </div>
 
-    <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-      <a class="btnlink" href="{{ url_for('admin.dashboard') }}">Back to Dashboard</a>
-      <a class="btnlink" href="{{ url_for('admin.transactions') }}">Transactions</a>
-      <a class="btnlink" href="{{ url_for('admin.expense_new') }}">Record Expense</a>
-    </div>
-  </div>
-
-  <!-- Date range selector + presets + CSV export -->
-  <div class="card" style="margin-bottom:12px;">
-    <div class="row" style="justify-content:space-between; gap:12px; align-items:flex-end;">
-      <div style="flex:1; min-width:260px;">
-        <div class="muted" style="font-size:12px; font-weight:900; margin-bottom:6px;">Quick presets</div>
-        <div class="row" style="gap:8px; flex-wrap:wrap;">
-          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='today') }}">Today</a>
-          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='week') }}">This Week</a>
-          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='month') }}">This Month</a>
-          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_month') }}">Last Month</a>
-          <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_30') }}">Last 30 Days</a>
+    <div class="toolbar">
+      <div class="group" style="min-width:260px;">
+        <div>
+          <div class="label">Quick presets</div>
+          <div class="group" style="gap:8px;">
+            <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='today') }}">Today</a>
+            <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='week') }}">This Week</a>
+            <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='month') }}">This Month</a>
+            <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_month') }}">Last Month</a>
+            <a class="btnlink" href="{{ url_for('admin.dashboard_finance', preset='last_30') }}">Last 30 Days</a>
+          </div>
         </div>
       </div>
 
-      <form method="get" action="{{ url_for('admin.dashboard_finance') }}" class="row" style="gap:10px; align-items:flex-end;">
-        <div>
-          <div class="muted" style="font-size:12px; font-weight:800;">Start</div>
-          <input type="date" name="start" value="{{ start_str }}" />
+      <form method="get" action="{{ url_for('admin.dashboard_finance') }}" class="group">
+        <div style="min-width:180px;">
+          <div class="label">Start</div>
+          <input class="input" type="date" name="start" value="{{ start_str }}" />
         </div>
-
-        <div>
-          <div class="muted" style="font-size:12px; font-weight:800;">End</div>
-          <input type="date" name="end" value="{{ end_str }}" />
+        <div style="min-width:180px;">
+          <div class="label">End</div>
+          <input class="input" type="date" name="end" value="{{ end_str }}" />
         </div>
-
         <div>
           <button type="submit">Apply</button>
         </div>
       </form>
-
-      <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-        <a class="btnlink"
-           href="{{ url_for('admin.dashboard_finance_csv', start=start_str, end=end_str) }}">
-          Download CSV
-        </a>
-      </div>
     </div>
-  </div>
+  </section>
 
   {# =========================
-     Cards: This period
+     KPI Cards
      ========================= #}
-  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Income (Selected Period)</div>
-      <div style="font-size:22px; font-weight:800;">
-        KES {{ this_month.income_kes if this_month else 0 }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Successful payments only
-      </div>
-    </div>
+  <div class="cards" style="margin-bottom:12px;">
+    <section class="panel kpi">
+      <div class="kpi-label">Income (Selected Period)</div>
+      <div class="kpi-value">KES {{ this_month.income_kes if this_month else 0 }}</div>
+      <div class="kpi-foot">Successful payments only</div>
+    </section>
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Expenses (Selected Period)</div>
-      <div style="font-size:22px; font-weight:800;">
-        KES {{ this_month.expenses_kes if this_month else 0 }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Incurred date preferred (fallback recorded date)
-      </div>
-    </div>
+    <section class="panel kpi">
+      <div class="kpi-label">Expenses (Selected Period)</div>
+      <div class="kpi-value">KES {{ this_month.expenses_kes if this_month else 0 }}</div>
+      <div class="kpi-foot">Incurred date preferred (fallback recorded date)</div>
+    </section>
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Profit (Selected Period)</div>
+    <section class="panel kpi">
+      <div class="kpi-label">Profit (Selected Period)</div>
       {% set profit = (this_month.profit_kes if this_month else 0) %}
-      <div style="font-size:22px; font-weight:900;">
-        KES {{ profit }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Income − Expenses
-      </div>
-    </div>
+      <div class="kpi-value">KES {{ profit }}</div>
+      <div class="kpi-foot">Income − Expenses</div>
+    </section>
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Profit (Last Month)</div>
+    <section class="panel kpi">
+      <div class="kpi-label">Profit (Last Month)</div>
       {% set last_profit = (last_month.profit_kes if last_month else 0) %}
-      <div style="font-size:22px; font-weight:900;">
-        KES {{ last_profit }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Quick trend check
-      </div>
-    </div>
+      <div class="kpi-value">KES {{ last_profit }}</div>
+      <div class="kpi-foot">Quick trend check</div>
+    </section>
   </div>
 
   {# =========================
      Expense Breakdown
      ========================= #}
-  <div class="card" style="margin-bottom:12px;">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+  <section class="panel" style="margin-bottom:12px;">
+    <div class="panel-head">
       <div>
-        <div style="font-weight:800; font-size:16px;">Expense Breakdown (Selected Period)</div>
-        <div class="muted" style="font-size:12px; margin-top:2px;">
-          Grouped by category (FK preferred; legacy text fallback)
+        <h3 class="panel-title">Expense Breakdown</h3>
+        <div class="panel-subtitle">
+          <span>Selected period</span>
+          <span style="opacity:.65;">•</span>
+          <span>Grouped by category (FK preferred; legacy text fallback)</span>
         </div>
       </div>
 
       {% set total_exp = (this_month.expenses_kes if this_month else 0) %}
-      <div class="muted" style="font-size:12px;">
-        Total: <span style="font-weight:800;">KES {{ total_exp }}</span>
+      <div class="panel-subtitle" style="justify-content:flex-end;">
+        <span class="pill">Total: KES {{ total_exp }}</span>
       </div>
     </div>
 
-    <div style="overflow:auto; margin-top:10px;">
-      <table class="table" style="width:100%;">
+    <div class="table-wrap">
+      <table>
         <thead>
           <tr>
-            <th style="text-align:left;">Category</th>
+            <th>Category</th>
             <th style="text-align:right;">Total (KES)</th>
             <th style="text-align:right;">Share</th>
           </tr>
@@ -148,43 +317,43 @@
                 {% set share = (row.total_kes * 100.0) / total_exp %}
               {% endif %}
               <tr>
-                <td style="text-align:left;">{{ row.category_name }}</td>
-                <td style="text-align:right;">{{ row.total_kes }}</td>
-                <td style="text-align:right;">
-                  {{ "%.1f"|format(share) }}%
-                </td>
+                <td><span class="truncate" title="{{ row.category_name }}">{{ row.category_name }}</span></td>
+                <td style="text-align:right;" class="mono">{{ row.total_kes }}</td>
+                <td style="text-align:right;" class="mono">{{ "%.1f"|format(share) }}%</td>
               </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="3" class="muted" style="padding:12px;">
-                No expenses recorded for this period.
+              <td colspan="3" style="padding:0;">
+                <div class="empty">No expenses recorded for this period.</div>
               </td>
             </tr>
           {% endif %}
         </tbody>
       </table>
     </div>
-  </div>
+  </section>
 
   {# =========================
-     Monthly Summary (Last 6)
+     Monthly Summary
      ========================= #}
-  <div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+  <section class="panel">
+    <div class="panel-head">
       <div>
-        <div style="font-weight:800; font-size:16px;">Monthly Summary (Last 6 Months)</div>
-        <div class="muted" style="font-size:12px; margin-top:2px;">
-          Aggregated by UTC month bounds; displayed in EAT
+        <h3 class="panel-title">Monthly Summary</h3>
+        <div class="panel-subtitle">
+          <span>Last 6 months</span>
+          <span style="opacity:.65;">•</span>
+          <span>Aggregated by UTC month bounds; displayed in EAT</span>
         </div>
       </div>
     </div>
 
-    <div style="overflow:auto; margin-top:10px;">
-      <table class="table" style="width:100%;">
+    <div class="table-wrap">
+      <table style="min-width:740px;">
         <thead>
           <tr>
-            <th style="text-align:left;">Month</th>
+            <th>Month</th>
             <th style="text-align:right;">Income (KES)</th>
             <th style="text-align:right;">Expenses (KES)</th>
             <th style="text-align:right;">Profit (KES)</th>
@@ -193,25 +362,30 @@
         <tbody>
           {% if summary and summary|length > 0 %}
             {% for mrow in summary %}
+              {% set p = (mrow.profit_kes or 0) %}
               <tr>
-                <td style="text-align:left;">
-                  {{ "%04d-%02d"|format(mrow.year, mrow.month) }}
+                <td class="mono">{{ "%04d-%02d"|format(mrow.year, mrow.month) }}</td>
+                <td style="text-align:right;" class="mono">{{ mrow.income_kes }}</td>
+                <td style="text-align:right;" class="mono">{{ mrow.expenses_kes }}</td>
+                <td style="text-align:right;" class="mono">
+                  {% if p >= 0 %}
+                    <span class="pill pill--ok">KES {{ p }}</span>
+                  {% else %}
+                    <span class="pill pill--bad">KES {{ p }}</span>
+                  {% endif %}
                 </td>
-                <td style="text-align:right;">{{ mrow.income_kes }}</td>
-                <td style="text-align:right;">{{ mrow.expenses_kes }}</td>
-                <td style="text-align:right; font-weight:800;">{{ mrow.profit_kes }}</td>
               </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="4" class="muted" style="padding:12px;">
-                No monthly data available yet.
+              <td colspan="4" style="padding:0;">
+                <div class="empty">No monthly data available yet.</div>
               </td>
             </tr>
           {% endif %}
         </tbody>
       </table>
     </div>
-  </div>
+  </section>
 
 {% endblock %}

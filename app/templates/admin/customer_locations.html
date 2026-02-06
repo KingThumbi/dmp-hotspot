@@ -1,0 +1,324 @@
+{% extends "admin/base.html" %}
+{% block title %}Locations{% endblock %}
+{% block header %}Customer Locations{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">
+    <span class="mono">{{ customer.phone }}</span>
+    <span class="muted"> · </span>
+    Manage installation/relocation history. One active location at a time.
+  </p>
+{% endblock %}
+
+{% block page_actions %}
+  {% if (current_user.is_authenticated and (current_user.can_ops() or current_user.has_role("admin"))) %}
+    <a class="btn btn-primary" href="{{ url_for('admin.customer_location_new_get', customer_id=customer.id) }}">New Location</a>
+  {% endif %}
+  <a class="btn" href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}">Back to Customer</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    /* -------------------------------------------------------
+       Customer Locations — Dashboard-grade cards + safe text
+       (HTML-only, no backend changes)
+    -------------------------------------------------------- */
+
+    .stack{ display:flex; flex-direction:column; gap:12px; }
+
+    .cardx{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      overflow:hidden;
+    }
+    .cardx-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+    }
+    .cardx-title{
+      margin:0;
+      font-size:14px;
+      font-weight:900;
+      letter-spacing:.2px;
+    }
+    .cardx-sub{
+      margin:4px 0 0 0;
+      font-size:12px;
+      color: var(--muted);
+      max-width: 80ch;
+    }
+    .cardx-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:12px;
+      padding: 12px;
+    }
+
+    .loc{
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:12px;
+      background:#fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .loc-top{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+
+    .title-row{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+
+    .loc-title{
+      font-weight:950;
+      letter-spacing:.2px;
+      max-width: 52ch;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:3px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:900;
+      border:1px solid var(--border);
+      white-space:nowrap;
+    }
+    .tag-dot{
+      width:8px; height:8px;
+      border-radius:999px;
+      background: rgba(148,163,184,0.9);
+      box-shadow: 0 0 0 3px rgba(148,163,184,0.15);
+    }
+    .tag-on{
+      border-color: rgba(16,185,129,0.35);
+      background: rgba(16,185,129,0.10);
+    }
+    .tag-on .tag-dot{
+      background: rgba(16,185,129,0.95);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
+    }
+    .tag-off{
+      border-color: rgba(148,163,184,0.60);
+      background: rgba(148,163,184,0.10);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .meta{
+      margin-top:8px;
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap:10px 14px;
+      align-items:start;
+    }
+    .meta-block{
+      min-width:0;
+    }
+    .kv{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .kv .k{
+      font-size:11px;
+      font-weight:900;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing:.5px;
+    }
+    .kv .v{
+      font-size:13px;
+      line-height:1.45;
+      color: var(--text);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .v.muted{ color: var(--muted); }
+    .v .line{
+      display:block;
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      align-items:center;
+    }
+
+    .empty{
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px){
+      .meta{ grid-template-columns: 1fr; }
+      .loc-title{ max-width: 42ch; }
+    }
+    @media (max-width: 720px){
+      .cardx-head{ padding:12px 12px; }
+      .grid{ padding: 10px; }
+      .loc{ padding: 12px; }
+      .loc-title{ max-width: 34ch; }
+    }
+  </style>
+
+  <div class="stack">
+
+    <section class="cardx">
+      <div class="cardx-head">
+        <div>
+          <h3 class="cardx-title">Locations</h3>
+          <p class="cardx-sub">
+            Track where service was installed, moved, or deactivated. Exactly one location should be active at any time.
+          </p>
+        </div>
+
+        <div class="cardx-actions">
+          {% if (current_user.is_authenticated and (current_user.can_ops() or current_user.has_role("admin"))) %}
+            <a class="btn btn-primary" href="{{ url_for('admin.customer_location_new_get', customer_id=customer.id) }}">New Location</a>
+          {% endif %}
+          <a class="btn" href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}">Back to Customer</a>
+        </div>
+      </div>
+
+      {% if not locations %}
+        <div class="empty">No locations saved for this customer yet.</div>
+      {% else %}
+        <div class="grid">
+          {% for loc in locations %}
+            <div class="loc">
+              <div class="loc-top">
+                <div style="min-width:0;">
+                  <div class="title-row">
+                    <div class="loc-title" title="{{ loc.label or 'Location' }}">
+                      {{ loc.label or "Location" }}
+                    </div>
+
+                    {% if loc.active %}
+                      <span class="tag tag-on" title="Active location">
+                        <span class="tag-dot"></span> active
+                      </span>
+                    {% else %}
+                      <span class="tag tag-off" title="Inactive location">
+                        <span class="tag-dot"></span> inactive
+                      </span>
+                    {% endif %}
+                  </div>
+
+                  {% set parts = [] %}
+                  {% if loc.apartment_name %}{% set _ = parts.append(loc.apartment_name) %}{% endif %}
+                  {% if loc.house_no %}{% set _ = parts.append("House " ~ loc.house_no) %}{% endif %}
+                  {% if loc.estate %}{% set _ = parts.append(loc.estate) %}{% endif %}
+                  {% if loc.town %}{% set _ = parts.append(loc.town) %}{% endif %}
+                  {% if loc.county %}{% set _ = parts.append(loc.county) %}{% endif %}
+
+                  <div class="muted" style="margin-top:6px;">
+                    <span class="line">{{ parts|join(" · ") if parts else "—" }}</span>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  {% if current_user.is_authenticated and (current_user.can_ops() or current_user.has_role("admin")) %}
+                    <a class="btn" href="{{ url_for('admin.customer_location_edit_get', location_id=loc.id) }}">Edit</a>
+
+                    {% if not loc.active %}
+                      <form method="post" action="{{ url_for('admin.customer_location_activate', location_id=loc.id) }}">
+                        <button class="btn btn-primary" type="submit">Activate</button>
+                      </form>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="meta">
+                <div class="meta-block">
+                  <div class="kv">
+                    <div class="k">Details</div>
+                    <div class="v muted">
+                      {% if loc.landmark %}
+                        <span class="line">Landmark: {{ loc.landmark }}</span>
+                      {% endif %}
+
+                      {% if loc.gps_lat and loc.gps_lng %}
+                        <span class="line mono">GPS: {{ loc.gps_lat }}, {{ loc.gps_lng }}</span>
+                      {% endif %}
+
+                      {% if not loc.landmark and not (loc.gps_lat and loc.gps_lng) %}
+                        <span class="line">—</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="kv" style="margin-top:10px;">
+                    <div class="k">Notes</div>
+                    <div class="v muted">
+                      {% if loc.notes %}
+                        <span class="line">{{ loc.notes }}</span>
+                      {% else %}
+                        <span class="line">—</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="meta-block">
+                  <div class="kv">
+                    <div class="k">Active window</div>
+                    <div class="v muted">
+                      <span class="line">
+                        Active from:
+                        <span class="mono">{{ (loc.active_from_utc|default(None)) and (loc.active_from_utc|string) or "-" }}</span>
+                      </span>
+                      {% if loc.active_to_utc %}
+                        <span class="line">
+                          Active to:
+                          <span class="mono">{{ loc.active_to_utc }}</span>
+                        </span>
+                      {% else %}
+                        <span class="line">Active to: <span class="mono">—</span></span>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+  </div>
+{% endblock %}

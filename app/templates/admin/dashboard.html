@@ -1,106 +1,242 @@
+{# app/templates/admin/dashboard.html #}
 {% extends "admin/base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% block header %}Dashboard{% endblock %}
+
+{% block page_subtitle %}
+  <p class="muted">Quick overview + shortcuts to Support, Operations, Finance, and Administration.</p>
+{% endblock %}
 
 {% block content %}
-  <div class="grid">
-    <div class="card">
-      <div class="muted">Customers</div>
-      <div style="font-size: 28px; font-weight: 800;">{{ customers_count }}</div>
-    </div>
+  <style>
+    .grid{ display:grid; gap:12px; }
+    .grid.kpis{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid.links{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (max-width: 980px){
+      .grid.kpis{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.links{ grid-template-columns: 1fr; }
+    }
 
-    <div class="card">
-      <div class="muted">Active Subscriptions</div>
-      <div style="font-size: 28px; font-weight: 800;">{{ active_subs }}</div>
-    </div>
+    .kpi{
+      border:1px solid var(--border);
+      border-radius: 16px;
+      background:#fff;
+      padding:14px;
+      box-shadow: var(--shadow-sm);
+      transition: transform .06s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+    .kpi:hover{
+      transform: translateY(-1px);
+      border-color: rgba(0,0,128,0.22);
+      box-shadow: 0 12px 28px rgba(16, 24, 40, 0.10);
+    }
+    .kpi .label{ font-size:12px; color: var(--muted); font-weight:900; }
+    .kpi .value{ font-size:24px; font-weight:950; margin-top:6px; }
+    .kpi .hint{ margin-top:6px; font-size:12px; color: var(--muted); }
 
-    <div class="card">
-      <div class="muted">Transactions</div>
-      <div class="row" style="margin-top:8px;">
-        <span class="pill pending">Pending: {{ pending_tx }}</span>
-        <span class="pill success">Success: {{ success_tx }}</span>
-        <span class="pill failed">Failed: {{ failed_tx }}</span>
+    .panel{
+      border:1px solid var(--border);
+      border-radius: 16px;
+      background:#fff;
+      padding:14px;
+      box-shadow: var(--shadow-sm);
+    }
+    .panel h3{ margin:0 0 8px 0; font-size:14px; font-weight:950; }
+    .panel .muted{ font-size:12px; }
+
+    .btnrow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .btn-sm{ padding:8px 10px; font-size:12px; }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0 10px; margin-top:10px; }
+    th{ text-align:left; font-size:12px; color: var(--muted); font-weight:900; }
+    td{
+      padding:10px 12px;
+      background:#fff;
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      vertical-align:middle;
+    }
+    tr td:first-child{ border-left:1px solid var(--border); border-top-left-radius:12px; border-bottom-left-radius:12px; }
+    tr td:last-child{ border-right:1px solid var(--border); border-top-right-radius:12px; border-bottom-right-radius:12px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+  </style>
+
+  {# Role helpers from your AdminUser model #}
+  {% set me = current_user if (current_user and current_user.is_authenticated) else None %}
+  {% set is_admin = (me and (me.role == "admin" or me.is_superadmin)) %}
+  {% set can_support = (me and (is_admin or me.can_support())) %}
+  {% set can_ops = (me and (is_admin or me.can_ops())) %}
+  {% set can_finance = (me and (is_admin or me.can_finance())) %}
+
+  {# ---------------- KPI CARDS ---------------- #}
+  <div class="grid kpis">
+    {% if can_support %}
+      <a class="kpi" href="{{ url_for('admin.customers') }}">
+        <div class="label">Customers</div>
+        <div class="value">{{ customers_count or 0 }}</div>
+        <div class="hint">View customers & history</div>
+      </a>
+    {% else %}
+      <div class="kpi">
+        <div class="label">Customers</div>
+        <div class="value">{{ customers_count or 0 }}</div>
+        <div class="hint">Support access required</div>
       </div>
-    </div>
+    {% endif %}
+
+    {% if (can_support or can_ops) %}
+      <a class="kpi" href="{{ url_for('admin.subscriptions') }}">
+        <div class="label">Active Subscriptions</div>
+        <div class="value">{{ active_subs or 0 }}</div>
+        <div class="hint">Hotspot + PPPoE</div>
+      </a>
+    {% else %}
+      <div class="kpi">
+        <div class="label">Active Subscriptions</div>
+        <div class="value">{{ active_subs or 0 }}</div>
+        <div class="hint">Ops/Support access required</div>
+      </div>
+    {% endif %}
+
+    {% if can_finance %}
+      <a class="kpi" href="{{ url_for('admin.transactions') }}">
+        <div class="label">Payments (Pending)</div>
+        <div class="value">{{ pending_tx or 0 }}</div>
+        <div class="hint">Track M-Pesa lifecycle</div>
+      </a>
+    {% else %}
+      <div class="kpi">
+        <div class="label">Payments (Pending)</div>
+        <div class="value">{{ pending_tx or 0 }}</div>
+        <div class="hint">Finance access required</div>
+      </div>
+    {% endif %}
+
+    {% if can_finance %}
+      <a class="kpi" href="{{ url_for('admin.dashboard_finance') }}">
+        <div class="label">This Month Profit (KES)</div>
+        <div class="value">{{ (finance.profit_kes if finance else 0) or 0 }}</div>
+        <div class="hint">
+          Income {{ (finance.income_kes if finance else 0) or 0 }}
+          · Expenses {{ (finance.expenses_kes if finance else 0) or 0 }}
+        </div>
+      </a>
+    {% else %}
+      <div class="kpi">
+        <div class="label">This Month Profit (KES)</div>
+        <div class="value">{{ (finance.profit_kes if finance else 0) or 0 }}</div>
+        <div class="hint">Finance access required</div>
+      </div>
+    {% endif %}
   </div>
 
-  <div style="height: 14px;"></div>
+  <div style="height:12px;"></div>
 
-  <!-- =========================================================
-       Finance Summary (This Month)
-       ========================================================= -->
-  <div class="row" style="gap:12px; margin-bottom:12px; flex-wrap:wrap;">
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Income (This Month)</div>
-      <div style="font-size:22px; font-weight:900;">
-        KES {{ finance.income_kes if finance else 0 }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Successful payments only
-      </div>
-    </div>
+  {# ---------------- SECTION SHORTCUT PANELS ---------------- #}
+  <div class="grid links">
 
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Expenses (This Month)</div>
-      <div style="font-size:22px; font-weight:900;">
-        KES {{ finance.expenses_kes if finance else 0 }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Incurred date preferred
-      </div>
-    </div>
-
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Profit (This Month)</div>
-      <div style="font-size:22px; font-weight:900;">
-        KES {{ finance.profit_kes if finance else 0 }}
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:6px;">
-        Income − Expenses
-      </div>
-    </div>
-
-    <div class="card" style="flex:1; min-width:220px;">
-      <div class="muted" style="font-size:12px;">Finance</div>
-      <div style="margin-top:8px;">
-        <a class="btnlink" href="{{ url_for('admin.dashboard_finance') }}">Open Finance →</a>
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:8px;">
-        Breakdown + CSV export
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="row" style="justify-content:space-between;">
-      <h2 style="margin:0;">Recent Transactions</h2>
-      <a class="muted" href="{{ url_for('admin.transactions') }}" style="text-decoration:none;">View all →</a>
-    </div>
-
-    <table style="margin-top: 10px;">
-      <thead>
-        <tr>
-          <th>Created</th>
-          <th>Status</th>
-          <th>Phone</th>
-          <th>Amount</th>
-          <th>Receipt</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in recent %}
-          <tr>
-            <td class="muted">{{ t.created_at }}</td>
-            <td><span class="pill {{ t.status }}">{{ t.status }}</span></td>
-            <td>{{ t.customer.phone if t.customer else "-" }}</td>
-            <td>{{ t.amount }}</td>
-            <td>{{ t.mpesa_receipt or "-" }}</td>
-          </tr>
+    <div class="panel">
+      <h3>Support</h3>
+      <div class="muted">Customers, subscriptions overview, and service tickets.</div>
+      <div class="btnrow">
+        {% if can_support %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('admin.customers') }}">Customers</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.subscriptions') }}">Subscriptions</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.tickets') }}">Tickets</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.ticket_new_get') }}">+ New Ticket</a>
         {% else %}
+          <span class="muted">Support links hidden (no access).</span>
+        {% endif %}
+      </div>
+      <div class="muted" style="margin-top:10px;">
+        Tip: Locations are per-customer → open a customer then click <b>Locations</b>.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Operations</h3>
+      <div class="muted">Provision PPPoE, manage assets, and handle field work.</div>
+      <div class="btnrow">
+        {% if can_ops %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('admin.pppoe_new') }}">+ New PPPoE</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.assets') }}">Assets</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.subscriptions', svc='pppoe') }}">PPPoE Subs</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.tickets', category='installation') }}">Installations</a>
+        {% else %}
+          <span class="muted">Operations links hidden (no access).</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Finance</h3>
+      <div class="muted">Revenue, expenses, categories, templates, and exports.</div>
+      <div class="btnrow">
+        {% if can_finance %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('admin.dashboard_finance') }}">Finance Dashboard</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.transactions') }}">Transactions</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.expense_new') }}">New Expense</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.expense_categories_list') }}">Expense Categories</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.expense_templates_list') }}">Expense Templates</a>
+        {% else %}
+          <span class="muted">Finance links hidden (no access).</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Administration</h3>
+      <div class="muted">System users and account security.</div>
+      <div class="btnrow">
+        {% if is_admin %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('admin.users_list') }}">Users</a>
+        {% endif %}
+        <a class="btn btn-sm" href="{{ url_for('admin.account_password_get') }}">Change Password</a>
+        <a class="btn btn-sm" href="{{ url_for('admin.logout') }}">Logout</a>
+      </div>
+      {% if not is_admin %}
+        <div class="muted" style="margin-top:10px;">Users page is admin-only.</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <div style="height:12px;"></div>
+
+  {# ---------------- RECENT TRANSACTIONS ---------------- #}
+  <div class="panel">
+    <h3>Recent Transactions</h3>
+    <div class="muted">Latest 10 payments. Use Transactions page for full list.</div>
+
+    {% if can_finance %}
+      <table>
+        <thead>
           <tr>
-            <td colspan="5" class="muted">No transactions yet.</td>
+            <th style="width:90px;">ID</th>
+            <th style="width:120px;">Status</th>
+            <th style="width:140px;">Amount</th>
+            <th>Customer</th>
+            <th style="width:220px;">Created (UTC)</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for t in recent %}
+            <tr>
+              <td class="mono muted">{{ t.id }}</td>
+              <td><span class="pill">{{ t.status }}</span></td>
+              <td class="mono">KES {{ t.amount }}</td>
+              <td class="mono">{{ t.customer.phone if t.customer else "-" }}</td>
+              <td class="muted">{{ t.created_at }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="5" class="muted" style="background:transparent; border:0;">No transactions yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="muted" style="margin-top:10px;">Finance access required to view transactions.</div>
+    {% endif %}
   </div>
 {% endblock %}

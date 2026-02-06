@@ -1,0 +1,44 @@
+<style>
+  .tl{ display:grid; gap:10px; }
+  .item{ border:1px solid var(--border); border-radius:12px; padding:10px; background:#fff; }
+  .meta{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+  .muted{ color: var(--muted); }
+  .pill{ font-size:11px; font-weight:900; padding:3px 10px; border-radius:999px; border:1px solid var(--border); background:#fff; }
+</style>
+
+<div class="tl">
+  {% if not updates %}
+    <div class="muted">No updates yet.</div>
+  {% endif %}
+
+  {% for u in updates %}
+    <div class="item">
+      <div class="meta">
+        <div class="mono muted">
+          {{ u.created_at }}
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          {% if u.status_from or u.status_to %}
+            <span class="pill">status: {{ u.status_from or "-" }} → {{ u.status_to or "-" }}</span>
+          {% endif %}
+          {% if u.assigned_from_admin_id or u.assigned_to_admin_id %}
+            <span class="pill">assignment changed</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="margin-top:8px;">
+        {% if u.message %}
+          <div style="white-space:pre-wrap;">{{ u.message }}</div>
+        {% else %}
+          <div class="muted">—</div>
+        {% endif %}
+      </div>
+
+      <div class="muted" style="margin-top:8px; font-size:12px;">
+        By: {{ (u.actor.name or u.actor.email) if u.actor else "system" }}
+      </div>
+    </div>
+  {% endfor %}
+</div>
