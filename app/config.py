@@ -35,7 +35,7 @@ class Config:
     MIKROTIK_PPPOE_HOST = os.getenv("MIKROTIK_PPPOE_HOST", "192.168.230.1").strip()
     MIKROTIK_PPPOE_PORT = int(os.getenv("MIKROTIK_PPPOE_PORT", "8728"))
     MIKROTIK_PPPOE_USER = os.getenv("MIKROTIK_PPPOE_USER", "admin").strip()
-    MIKROTIK_PPPOE_PASS = os.getenv("MIKROTIK_PPPOE_PASS", "")
+    MIKROTIK_PPPOE_PASS = os.getenv("MIKROTIK_PPPOE_PASS", "9Dmpolin")
     MIKROTIK_PPPOE_TLS = os.getenv("MIKROTIK_PPPOE_TLS", "false").strip().lower() == "true"
 
     # =========================================================
@@ -43,21 +43,41 @@ class Config:
     # =========================================================
     MIKROTIK_HOTSPOT_HOST = os.getenv("MIKROTIK_HOTSPOT_HOST", "192.168.240.1").strip()
     MIKROTIK_HOTSPOT_PORT = int(os.getenv("MIKROTIK_HOTSPOT_PORT", "8728"))
-    MIKROTIK_HOTSPOT_USER = os.getenv("MIKROTIK_HOTSPOT_USER", "hotspotapi").strip()
-    MIKROTIK_HOTSPOT_PASS = os.getenv("MIKROTIK_HOTSPOT_PASS", "")
+    MIKROTIK_HOTSPOT_USER = os.getenv("MIKROTIK_HOTSPOT_USER", "admin").strip()
+    MIKROTIK_HOTSPOT_PASS = os.getenv("MIKROTIK_HOTSPOT_PASS", "9Dmpolin")
     MIKROTIK_HOTSPOT_TLS = os.getenv("MIKROTIK_HOTSPOT_TLS", "false").strip().lower() == "true"
+
+    # =========================================================
+    # Compatibility aliases (used by mikrotik_hotspot.py today)
+    # Prefer HOTSPOT_* vars; fall back to generic vars if provided.
+    # =========================================================
+    MIKROTIK_HOST = os.getenv("MIKROTIK_HOTSPOT_HOST", os.getenv("MIKROTIK_HOST", "192.168.240.1")).strip()
+    MIKROTIK_PORT = int(os.getenv("MIKROTIK_HOTSPOT_PORT", os.getenv("MIKROTIK_PORT", "8728")))
+    MIKROTIK_USER = os.getenv("MIKROTIK_HOTSPOT_USER", os.getenv("MIKROTIK_USER", "admin")).strip()
+    MIKROTIK_PASSWORD = os.getenv("MIKROTIK_HOTSPOT_PASS", os.getenv("MIKROTIK_PASSWORD", "9Dmpolin"))
+    MIKROTIK_TLS = os.getenv("MIKROTIK_HOTSPOT_TLS", os.getenv("MIKROTIK_TLS", "false")).strip().lower() == "true"
 
     # =========================================================
     # Optional safety validation (only when router agent enabled)
     # =========================================================
     if ROUTER_AGENT_ENABLED:
         missing: list[str] = []
+
+        # PPPoE
         if not MIKROTIK_PPPOE_HOST:
             missing.append("MIKROTIK_PPPOE_HOST")
         if not MIKROTIK_PPPOE_USER:
             missing.append("MIKROTIK_PPPOE_USER")
         if not MIKROTIK_PPPOE_PASS:
             missing.append("MIKROTIK_PPPOE_PASS")
+
+        # Hotspot (aliases resolve to hotspot config)
+        if not MIKROTIK_HOST:
+            missing.append("MIKROTIK_HOTSPOT_HOST (or MIKROTIK_HOST)")
+        if not MIKROTIK_USER:
+            missing.append("MIKROTIK_HOTSPOT_USER (or MIKROTIK_USER)")
+        if not MIKROTIK_PASSWORD:
+            missing.append("MIKROTIK_HOTSPOT_PASS (or MIKROTIK_PASSWORD)")
 
         if missing:
             raise RuntimeError("ROUTER_AGENT_ENABLED=true but missing: " + ", ".join(missing))

@@ -184,6 +184,13 @@ class Package(db.Model):
     duration_minutes: int = db.Column(db.Integer, nullable=False)
     price_kes: int = db.Column(db.Integer, nullable=False)
 
+    max_devices: int = db.Column(
+        db.Integer,
+        nullable=False,
+        default=1,
+        server_default=sa.text("1"),
+    )
+
     mikrotik_profile: str = db.Column(db.String(60), nullable=False)
 
     created_at: datetime = db.Column(
@@ -983,3 +990,36 @@ class TicketUpdate(db.Model):
 
     def __repr__(self) -> str:
         return f"<TicketUpdate id={self.id} ticket_id={self.ticket_id} created_at={self.created_at}>"
+
+class MpesaPayment(db.Model):
+    __tablename__ = "mpesa_payments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, nullable=True)
+    subscription_id = db.Column(db.Integer, nullable=True)
+
+    phone = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+
+    checkout_request_id = db.Column(db.String(64), index=True)
+    merchant_request_id = db.Column(db.String(64))
+    mpesa_receipt = db.Column(db.String(40), unique=True)
+
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    paid_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    raw_callback = db.Column(db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.text("now()"), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=db.text("now()"), nullable=False)
+
+
+class HotspotEntitlement(db.Model):
+    __tablename__ = "hotspot_entitlements"
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(db.String(20), index=True, nullable=False)
+    username = db.Column(db.String(64), index=True, nullable=False)
+    package_code = db.Column(db.String(32), nullable=False)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="active")  # active|expired|revoked
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
