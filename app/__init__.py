@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from flask import Flask, current_app as flask_current_app
 
 from .logging import setup_logging
-from .scheduler import enforce_all_expiry  # ✅ PPPoE + Hotspot
+from .scheduler import enforce_all_expiry  # PPPoE + Hotspot
 
 
 def _load_env() -> None:
@@ -18,8 +18,7 @@ def _load_env() -> None:
     Load .env for LOCAL DEV only, without overriding real environment variables.
 
     Rule:
-    - If DATABASE_URL is already set (e.g. Render, CI, migrations),
-      do NOT override it from .env.
+    - If DATABASE_URL is already set (Render/CI/migrations), do NOT override it from .env.
     """
     if os.getenv("DATABASE_URL"):
         return
@@ -56,19 +55,19 @@ def create_app() -> Flask:
     app.config.from_object(Config)
 
     # ---------------------------------------------------------
-    # Scheduler settings (safe defaults)
+    # 4) Scheduler settings (safe defaults)
     # ---------------------------------------------------------
     app.config["SCHEDULER_ENABLED"] = _env_flag("SCHEDULER_ENABLED", False)
     app.config["SCHEDULER_DRY_RUN"] = _env_flag("SCHEDULER_DRY_RUN", True)
     app.config["SCHEDULER_INTERVAL_MINUTES"] = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "2"))
 
     # ---------------------------------------------------------
-    # 4) Logging
+    # 5) Logging
     # ---------------------------------------------------------
     setup_logging(debug=bool(app.config.get("DEBUG", False)))
 
     # ---------------------------------------------------------
-    # 5) Extensions
+    # 6) Extensions
     # ---------------------------------------------------------
     from .extensions import db, limiter, login_manager, migrate
 
@@ -78,7 +77,7 @@ def create_app() -> Flask:
     login_manager.init_app(app)
 
     # ---------------------------------------------------------
-    # 6) Blueprints
+    # 7) Blueprints
     # ---------------------------------------------------------
     from .admin import admin as admin_bp
     from .routes import main as main_bp
@@ -86,36 +85,24 @@ def create_app() -> Flask:
 
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
-    app.register_blueprint(mpesa_bp)  # ✅ /api/mpesa/*
+    app.register_blueprint(mpesa_bp)  # /api/mpesa/*
 
     # ---------------------------------------------------------
-    # 6b) Optional: keep legacy callback URL working
-    #     This ensures BOTH:
-    #       POST /mpesa/callback
-    #       POST /api/mpesa/callback
-    #     hit the same handler, avoiding Daraja misconfig risk.
-    # ---------------------------------------------------------
-    #@main_bp.post("/mpesa/callback")
-    #def mpesa_callback_legacy():
-    #   from .mpesa import mpesa_callback_route  # local import avoids circulars
-    #    return mpesa_callback_route()
-
-    # ---------------------------------------------------------
-    # 7) Context processor
+    # 8) Context processor
     # ---------------------------------------------------------
     @app.context_processor
     def inject_current_app():
         return {"current_app": flask_current_app}
 
     # ---------------------------------------------------------
-    # 8) Health check
+    # 9) Health check
     # ---------------------------------------------------------
     @app.get("/_ping")
     def ping():
         return {"service": "dmp-hotspot", "status": "running"}
 
     # =========================================================
-    # 9) Expiry Scheduler (PPPoE + Hotspot) — safe gating
+    # 10) Expiry Scheduler (PPPoE + Hotspot) — safe gating
     # =========================================================
     scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -129,7 +116,7 @@ def create_app() -> Flask:
         if not app.config.get("SCHEDULER_ENABLED", False):
             return False
 
-        # Avoid starting scheduler during CLI commands
+        # Avoid starting scheduler during CLI commands (Render does `flask db upgrade`)
         if _env_flag("FLASK_RUN_FROM_CLI", False):
             return False
 
@@ -171,18 +158,13 @@ def create_app() -> Flask:
         scheduler.start()
         app.logger.info("Scheduler started (interval=%sm, dry_run=%s).", interval_minutes, dry_run)
 
+    # Keep the “old way”: no teardown shutdown hook.
+    # Gunicorn/Render restarts the process cleanly; we also avoid stopping the scheduler
+    # on every request context teardown.
     start_scheduler()
 
-    @app.teardown_appcontext
-    def _shutdown_scheduler(_exc):
-        if scheduler.running:
-            try:
-                scheduler.shutdown(wait=False)
-            except Exception:
-                pass
-
     # ---------------------------------------------------------
-    # 10) CLI Commands (Flask 3.x reliable registration)
+    # 11) CLI Commands (Flask 3.x reliable registration)
     # ---------------------------------------------------------
     from .cli import ping_cli, sub_disconnect_last, sub_reconnect_last
 

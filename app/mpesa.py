@@ -16,6 +16,10 @@ from app.models import MpesaPayment  # must match your model/table name
 
 mpesa_bp = Blueprint("mpesa", __name__, url_prefix="/api/mpesa")
 
+@mpesa_bp.errorhandler(Exception)
+def mpesa_bp_errorhandler(e):
+    current_app.logger.exception("Unhandled error in /api/mpesa/*")
+    return jsonify({"ok": False, "error": "Internal Server Error"}), 500
 
 # ----------------------------
 # Helpers / Config
@@ -96,6 +100,9 @@ def normalize_phone_to_254(phone: str) -> str:
 def _oauth_token(cfg: MpesaConfig) -> str:
     url = f"{_base_url(cfg.env)}/oauth/v1/generate?grant_type=client_credentials"
     r = requests.get(url, auth=(cfg.consumer_key, cfg.consumer_secret), timeout=30)
+    if r.status_code >= 400:
+        # Helpful logs when credentials/env are wrong
+        current_app.logger.error("OAuth failed status=%s body=%s", r.status_code, r.text)
     r.raise_for_status()
     data = r.json() or {}
     token = data.get("access_token")
@@ -109,7 +116,13 @@ def _stk_password(shortcode: str, passkey: str, timestamp: str) -> str:
     return base64.b64encode(raw).decode("utf-8")
 
 
-def stk_push(cfg: MpesaConfig, phone_254: str, amount: int) -> Dict[str, Any]:
+def stk_push(
+    cfg: MpesaConfig,
+    phone_254: str,
+    amount: int,
+    *,
+    account_ref: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Initiate STK push.
     Returns Safaricom JSON response (includes CheckoutRequestID, MerchantRequestID on success).
@@ -136,15 +149,23 @@ def stk_push(cfg: MpesaConfig, phone_254: str, amount: int) -> Dict[str, Any]:
         "PartyB": cfg.shortcode,
         "PhoneNumber": phone_254,
         "CallBackURL": cfg.callback_url,
-        "AccountReference": cfg.account_ref,
+        # ✅ dynamic account reference (pppoe/hotspot identity) if provided
+        "AccountReference": (account_ref or cfg.account_ref),
         "TransactionDesc": cfg.tx_desc,
     }
 
-    # timeout_url is optional; only send if you actually set it
+    # Queue timeout URL is optional
     if cfg.timeout_url:
         payload["QueueTimeOutURL"] = cfg.timeout_url
 
     r = requests.post(url, json=payload, headers=headers, timeout=30)
+    if r.status_code >= 400:
+        current_app.logger.error(
+            "STK push failed status=%s body=%s payload=%s",
+            r.status_code,
+            r.text,
+            payload,
+        )
     r.raise_for_status()
     return r.json() or {}
 
@@ -229,21 +250,33 @@ def _hotspot_enable_now(app, sub, *, tx_ref: str) -> None:
 # ----------------------------
 # Routes
 # ----------------------------
+@mpesa_bp.get("/ping")
+def mpesa_ping():
+    return jsonify({"ok": True, "where": "mpesa_bp", "prefix": "/api/mpesa"}), 200
+
+
 @mpesa_bp.post("/stkpush")
 def mpesa_stkpush_route():
     """
     Request body:
-      { "phone": "0712345678", "amount": 1000, "customer_id": 1, "subscription_id": 6 }
+      { "phone": "0712345678", "amount": 1000, "customer_id": 1, "subscription_id": 6, "account_ref": "optional" }
 
-    customer_id/subscription_id are optional but recommended for linking later.
-    We create a payment row first for audit, then update it with CheckoutRequestID.
+    Notes:
+    - customer_id/subscription_id are optional but recommended for linking later.
+    - We create a payment row first for audit, then update it with CheckoutRequestID.
+    - AccountReference precedence:
+        1) data.account_ref (if provided)
+        2) subscription.identity() (pppoe_username/hotspot_username) if subscription_id provided
+        3) cfg.account_ref fallback inside stk_push
     """
+    # 1) Load config
     try:
         cfg = load_mpesa_config()
     except Exception as e:
         current_app.logger.exception("M-Pesa config error")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+    # 2) Parse request body
     data = request.get_json(force=True, silent=True) or {}
     phone_raw = (data.get("phone") or "").strip()
     amount = data.get("amount")
@@ -251,8 +284,10 @@ def mpesa_stkpush_route():
     if not phone_raw or amount is None:
         return jsonify({"ok": False, "error": "phone and amount are required"}), 400
 
+    # 3) Validate and normalize
     try:
         phone_254 = normalize_phone_to_254(phone_raw)
+
         amount_int = int(amount)
         if amount_int <= 0:
             raise ValueError("Amount must be a positive integer.")
@@ -262,9 +297,26 @@ def mpesa_stkpush_route():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 
+    # 4) Optional linking fields
     customer_id = data.get("customer_id")
     subscription_id = data.get("subscription_id")
 
+    # 5) Resolve AccountReference (optional, dynamic)
+    #    First: explicit input; else: subscription identity; else: stk_push will fallback to cfg.account_ref
+    account_ref = (data.get("account_ref") or "").strip() or None
+    if not account_ref and subscription_id:
+        try:
+            from app.models import Subscription  # local import avoids circulars
+
+            sub = Subscription.query.get(int(subscription_id))
+            if sub:
+                ident = (sub.identity() or "").strip()
+                if ident:
+                    account_ref = ident
+        except Exception:
+            current_app.logger.exception("Failed resolving subscription identity for AccountReference")
+
+    # 6) Create payment row first (audit trail)
     payment = MpesaPayment(
         customer_id=customer_id,
         subscription_id=subscription_id,
@@ -276,16 +328,20 @@ def mpesa_stkpush_route():
     db.session.add(payment)
     db.session.commit()
 
+    # 7) Call Daraja STK push
     try:
-        resp = stk_push(cfg=cfg, phone_254=phone_254, amount=amount_int)
-
+        resp = stk_push(
+            cfg=cfg,
+            phone_254=phone_254,
+            amount=amount_int,          # Daraja expects int
+            account_ref=account_ref,    # can be None
+        )
     except requests.HTTPError as e:
         payment.status = "failed"
         payment.raw_callback = {"error": "http_error", "details": str(e)}
         db.session.commit()
         current_app.logger.exception("STK push HTTP error")
         return jsonify({"ok": False, "error": "STK push failed", "payment_id": payment.id}), 502
-
     except Exception as e:
         payment.status = "failed"
         payment.raw_callback = {"error": "exception", "details": str(e)}
@@ -293,11 +349,11 @@ def mpesa_stkpush_route():
         current_app.logger.exception("STK push error")
         return jsonify({"ok": False, "error": "STK push failed", "payment_id": payment.id}), 500
 
+    # 8) Update payment with Daraja identifiers + status
     payment.checkout_request_id = resp.get("CheckoutRequestID")
     payment.merchant_request_id = resp.get("MerchantRequestID")
 
-    response_code = resp.get("ResponseCode")
-    if response_code == "0":
+    if resp.get("ResponseCode") == "0":
         payment.status = "pending"
     else:
         payment.status = "failed"
@@ -306,7 +362,6 @@ def mpesa_stkpush_route():
     db.session.commit()
 
     return jsonify({"ok": True, "payment_id": payment.id, "daraja": resp}), 200
-
 
 @mpesa_bp.post("/callback")
 def mpesa_callback_route():
@@ -431,7 +486,3 @@ def mpesa_callback_route():
         current_app.logger.exception("Failed saving failed payment callback")
 
     return jsonify({"ok": True, "status": "failed", "result_desc": result_desc}), 200
-
-@mpesa_bp.get("/ping")
-def mpesa_ping():
-    return jsonify({"ok": True, "where": "mpesa_bp", "prefix": "/api/mpesa"}), 200
