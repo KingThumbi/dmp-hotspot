@@ -9,8 +9,8 @@
         <div style="min-width:240px;">
           <h2 style="margin:0;">Create PPPoE Subscription</h2>
           <div class="muted" style="margin-top:6px;">
-            Admin-only provisioning: assigns a PPPoE username (<code>D001</code>…<code>D999</code>, then <code>DA0001</code>…)
-            and creates an <b>ACTIVE</b> subscription.
+            Admin provisioning: assigns a PPPoE username (<code>D001</code>…<code>D999</code>, then <code>DA0001</code>…)
+            and creates a subscription (supports <b>0 months</b> for a pending shell).
           </div>
         </div>
 
@@ -25,15 +25,17 @@
       <form method="POST" action="{{ url_for('admin.pppoe_create') }}">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <div style="min-width:0;">
-            <label class="muted" style="font-weight:900; font-size:13px; display:block;">
+            <label class="muted" for="phone" style="font-weight:900; font-size:13px; display:block;">
               Customer Phone
             </label>
             <input
+              id="phone"
               name="phone"
               placeholder="0712345678 or 254712345678"
               autocomplete="tel"
               inputmode="numeric"
               required
+              title="Customer phone number (0712… or 2547…)"
             />
             <div class="muted" style="font-size:12px; margin-top:6px;">
               If the customer doesn’t exist, we’ll create them automatically.
@@ -41,11 +43,11 @@
           </div>
 
           <div style="min-width:0;">
-            <label class="muted" style="font-weight:900; font-size:13px; display:block;">
+            <label class="muted" for="package_id" style="font-weight:900; font-size:13px; display:block;">
               PPPoE Package
             </label>
-            <select name="package_id" required>
-              <option value="">Select PPPoE package…</option>
+            <select id="package_id" name="package_id" required title="Choose a PPPoE package">
+              <option value="" selected disabled>Select PPPoE package…</option>
               {% for p in packages %}
                 <option value="{{ p.id }}">{{ p.code }} — {{ p.name }} (KES {{ p.price_kes }})</option>
               {% endfor %}
@@ -58,14 +60,16 @@
 
         <div style="display:grid; grid-template-columns: 1fr 200px; gap:12px; margin-top:12px;">
           <div style="min-width:0;">
-            <label class="muted" style="font-weight:900; font-size:13px; display:block;">
+            <label class="muted" for="pppoe_username" style="font-weight:900; font-size:13px; display:block;">
               PPPoE Username
             </label>
             <input
+              id="pppoe_username"
               name="pppoe_username"
               placeholder="{{ suggested_username }}"
               autocapitalize="characters"
               autocomplete="off"
+              title="Leave blank to auto-assign a PPPoE username"
             />
             <div class="muted" style="font-size:12px; margin-top:6px;">
               Leave blank to auto-assign (suggested: <b>{{ suggested_username }}</b>).
@@ -74,17 +78,28 @@
           </div>
 
           <div style="min-width:0;">
-            <label class="muted" style="font-weight:900; font-size:13px; display:block;">
+            <label class="muted" for="months" style="font-weight:900; font-size:13px; display:block;">
               Months
             </label>
-            <input name="months" type="number" min="1" max="36" value="1" required />
-            <div class="muted" style="font-size:12px; margin-top:6px;">1–36 months</div>
+            <input
+              id="months"
+              name="months"
+              type="number"
+              min="0"
+              max="36"
+              value="1"
+              required
+              title="Months (0 = create a pending subscription shell without activation)"
+            />
+            <div class="muted" style="font-size:12px; margin-top:6px;">
+              0–36 months. Use <b>0</b> to create a pending subscription (no expiry set, no transaction).
+            </div>
           </div>
         </div>
 
         <div style="margin-top:14px;">
-          <label style="display:flex; gap:10px; align-items:flex-start;">
-            <input type="checkbox" name="set_customer_pppoe" checked />
+          <label for="set_customer_pppoe" style="display:flex; gap:10px; align-items:flex-start;">
+            <input id="set_customer_pppoe" type="checkbox" name="set_customer_pppoe" checked />
             <div>
               <div style="font-weight:900;">Save PPPoE creds on customer</div>
               <div class="muted" style="font-size:12px;">
@@ -95,12 +110,13 @@
         </div>
 
         <div style="margin-top:10px;">
-          <label style="display:flex; gap:10px; align-items:flex-start;">
-            <input type="checkbox" name="enable_now" />
+          <label for="enable_now" style="display:flex; gap:10px; align-items:flex-start;">
+            <input id="enable_now" type="checkbox" name="enable_now" />
             <div>
               <div style="font-weight:900;">Provision / Enable on router now</div>
               <div class="muted" style="font-size:12px;">
                 Requires <code>ROUTER_AGENT_ENABLED=true</code>. If off, DB-only.
+                <span style="opacity:.8;">(If Months is 0, router enable is skipped.)</span>
               </div>
             </div>
           </label>
