@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from flask import Flask, current_app as flask_current_app
 
 from .logging import setup_logging
-from .scheduler import enforce_all_expiry  # PPPoE + Hotspot
 
 
 def _load_env() -> None:
@@ -61,6 +60,10 @@ def create_app() -> Flask:
     app.config["SCHEDULER_DRY_RUN"] = _env_flag("SCHEDULER_DRY_RUN", True)
     app.config["SCHEDULER_INTERVAL_MINUTES"] = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "2"))
 
+    # Reconciliation toggles (safe defaults)
+    app.config["RECONCILE_ENABLED"] = _env_flag("RECONCILE_ENABLED", False)
+    app.config["RECONCILE_INTERVAL_MINUTES"] = int(os.getenv("RECONCILE_INTERVAL_MINUTES", "3"))
+
     # ---------------------------------------------------------
     # 5) Logging
     # ---------------------------------------------------------
@@ -102,7 +105,7 @@ def create_app() -> Flask:
         return {"service": "dmp-hotspot", "status": "running"}
 
     # =========================================================
-    # 10) Expiry Scheduler (PPPoE + Hotspot) — safe gating
+    # 10) APScheduler — expiry + reconciliation (safe gating)
     # =========================================================
     scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -116,7 +119,7 @@ def create_app() -> Flask:
         if not app.config.get("SCHEDULER_ENABLED", False):
             return False
 
-        # Avoid starting scheduler during CLI commands (Render does `flask db upgrade`)
+        # Avoid starting scheduler during CLI commands (Render often does `flask db upgrade`)
         if _env_flag("FLASK_RUN_FROM_CLI", False):
             return False
 
@@ -125,6 +128,63 @@ def create_app() -> Flask:
             return False
 
         return True
+
+    def _register_jobs() -> None:
+        """
+        Register all scheduled jobs (expiry + reconciliation).
+        Uses max_instances=1 and coalesce=True for safety.
+        """
+        from .scheduler import (
+            enforce_all_expiry,
+            reconcile_pending_mpesa,
+            retry_activation_failed,
+        )
+
+        expiry_minutes = int(app.config.get("SCHEDULER_INTERVAL_MINUTES", 2))
+        dry_run = bool(app.config.get("SCHEDULER_DRY_RUN", True))
+
+        # ---- Expiry enforcement ----
+        scheduler.add_job(
+            enforce_all_expiry,
+            trigger=IntervalTrigger(minutes=expiry_minutes),
+            kwargs={"app": app, "dry_run": dry_run},
+            id="expiry_enforcer_all",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=60,
+        )
+        app.logger.info("Scheduler job registered: expiry_enforcer_all -> enforce_all_expiry")
+
+        # ---- M-Pesa reconciliation jobs (optional) ----
+        if app.config.get("RECONCILE_ENABLED", False):
+            recon_minutes = int(app.config.get("RECONCILE_INTERVAL_MINUTES", 3))
+
+            scheduler.add_job(
+                reconcile_pending_mpesa,
+                trigger=IntervalTrigger(minutes=recon_minutes),
+                kwargs={"app": app, "dry_run": dry_run},
+                id="mpesa_reconcile_pending",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=60,
+            )
+            app.logger.info("Scheduler job registered: mpesa_reconcile_pending -> reconcile_pending_mpesa")
+
+            scheduler.add_job(
+                retry_activation_failed,
+                trigger=IntervalTrigger(minutes=recon_minutes),
+                kwargs={"app": app, "dry_run": dry_run},
+                id="mpesa_retry_activation_failed",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=60,
+            )
+            app.logger.info("Scheduler job registered: mpesa_retry_activation_failed -> retry_activation_failed")
+        else:
+            app.logger.info("Reconciliation disabled (RECONCILE_ENABLED=false).")
 
     def start_scheduler() -> None:
         if not _should_start_scheduler():
@@ -140,27 +200,17 @@ def create_app() -> Flask:
         if scheduler.running:
             return
 
-        interval_minutes = int(app.config.get("SCHEDULER_INTERVAL_MINUTES", 2))
-        dry_run = bool(app.config.get("SCHEDULER_DRY_RUN", True))
+        _register_jobs()
+        scheduler.start()
 
-        scheduler.add_job(
-            enforce_all_expiry,
-            trigger=IntervalTrigger(minutes=interval_minutes),
-            kwargs={"app": app, "dry_run": dry_run},
-            id="expiry_enforcer_all",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=60,
+        app.logger.info(
+            "Scheduler started (expiry_interval=%sm, reconcile_enabled=%s, dry_run=%s).",
+            int(app.config.get("SCHEDULER_INTERVAL_MINUTES", 2)),
+            bool(app.config.get("RECONCILE_ENABLED", False)),
+            bool(app.config.get("SCHEDULER_DRY_RUN", True)),
         )
 
-        app.logger.info("Scheduler job registered: expiry_enforcer_all -> enforce_all_expiry")
-        scheduler.start()
-        app.logger.info("Scheduler started (interval=%sm, dry_run=%s).", interval_minutes, dry_run)
-
-    # Keep the “old way”: no teardown shutdown hook.
-    # Gunicorn/Render restarts the process cleanly; we also avoid stopping the scheduler
-    # on every request context teardown.
+    # Start scheduler once at app startup
     start_scheduler()
 
     # ---------------------------------------------------------

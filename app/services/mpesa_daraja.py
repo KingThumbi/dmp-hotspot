@@ -100,3 +100,34 @@ def stk_push(*, phone_254: str, amount: int, cfg: MpesaConfig | None = None) -> 
     r = requests.post(url, json=payload, headers=headers, timeout=30)
     r.raise_for_status()
     return r.json() or {}
+
+
+def stk_query(*, checkout_request_id: str, cfg: MpesaConfig | None = None) -> Dict[str, Any]:
+    """
+    STK Push Query.
+    Confirms payment status for a given CheckoutRequestID.
+
+    Returns Daraja JSON with ResultCode/ResultDesc on success.
+    """
+    checkout_request_id = (checkout_request_id or "").strip()
+    if not checkout_request_id:
+        raise ValueError("checkout_request_id is required")
+
+    cfg = cfg or load_mpesa_config()
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    password = _stk_password(cfg.shortcode, cfg.passkey, timestamp)
+    token = get_access_token(cfg)
+
+    url = f"{_mpesa_base_url(cfg.env)}/mpesa/stkpushquery/v1/query"
+    payload: Dict[str, Any] = {
+        "BusinessShortCode": cfg.shortcode,
+        "Password": password,
+        "Timestamp": timestamp,
+        "CheckoutRequestID": checkout_request_id,
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    r = requests.post(url, json=payload, headers=headers, timeout=30)
+    r.raise_for_status()
+    return r.json() or {}

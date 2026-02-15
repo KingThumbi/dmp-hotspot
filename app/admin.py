@@ -8,7 +8,9 @@ import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
+from sqlalchemy import and_
 
 import sqlalchemy as sa
 from flask import (
@@ -69,6 +71,18 @@ def to_nairobi(dt_utc_naive: datetime | None) -> datetime | None:
         return None
     return dt_utc_naive.replace(tzinfo=timezone.utc).astimezone(NAIROBI)
 
+def parse_datetime_local_eat_to_utc_naive(value: str) -> datetime:
+    """
+    Takes HTML datetime-local ('YYYY-MM-DDTHH:MM') assumed in Africa/Nairobi (EAT),
+    returns UTC-naive datetime for DB (your DB stores naive UTC).
+    """
+    if not value:
+        raise ValueError("paid_at is required")
+
+    # datetime-local is naive; treat it as Nairobi time
+    local_naive = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+    local = local_naive.replace(tzinfo=NAIROBI)
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
 
 def _month_range_utc_naive(now_utc_naive: datetime) -> tuple[datetime, datetime]:
     start = datetime(now_utc_naive.year, now_utc_naive.month, 1)
@@ -123,7 +137,210 @@ def _parse_date_range_args() -> tuple[datetime, datetime, str, str]:
 
     return start, end_excl, start_str, end_str
 
+def compute_new_expiry_from_paid_at(sub, paid_at_utc_naive: datetime) -> datetime:
+    minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
+    if minutes <= 0:
+        raise ValueError("Package duration_minutes is missing/invalid")
 
+    current_expires = getattr(sub, "expires_at", None)
+    base = current_expires if (current_expires and current_expires > paid_at_utc_naive) else paid_at_utc_naive
+    return base + timedelta(minutes=minutes)
+
+# ---------------------------------------------------------
+# Helpers: void-safe checks + recompute expiry from history
+# ---------------------------------------------------------
+
+def _is_voided_tx(tx: Transaction) -> bool:
+    """
+    We treat a tx as voided if:
+      - status == 'voided'
+      OR
+      - result_desc contains 'voided=1' (legacy-safe)
+    """
+    st = (getattr(tx, "status", "") or "").strip().lower()
+    if st == "voided":
+        return True
+
+    desc = (getattr(tx, "result_desc", "") or "").lower()
+    return "voided=1" in desc
+
+
+def _is_success_tx(tx: Transaction) -> bool:
+    return (getattr(tx, "status", "") or "").strip().lower() == "success"
+
+
+def _is_manual_tx(tx: Transaction) -> bool:
+    return (getattr(tx, "result_code", "") or "").strip().upper() == "MANUAL"
+
+
+def _append_desc_flag(desc: str, flag: str) -> str:
+    desc = (desc or "").strip()
+    if not desc:
+        return flag
+    if flag.lower() in desc.lower():
+        return desc
+    return f"{desc} | {flag}"
+
+
+def recompute_subscription_expiry_from_valid_payments(sub: Subscription) -> None:
+    """
+    Rebuilds sub.expires_at and sub.last_tx_id from historical TXs.
+
+    Assumptions (based on your current schema):
+      - Transaction has customer_id, package_id, status, created_at
+      - Subscription has customer_id, package_id, expires_at, starts_at, last_tx_id
+      - DB timestamps are UTC-naive (your convention)
+    """
+    if not sub or not sub.customer_id or not sub.package_id:
+        return
+
+    # Need duration for billing
+    duration_minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
+    if duration_minutes <= 0:
+        duration_minutes = 43200  # 30 days fallback
+
+    # Pull all SUCCESS tx for this customer+package
+    txs = (
+        Transaction.query
+        .filter(
+            Transaction.customer_id == sub.customer_id,
+            Transaction.package_id == sub.package_id,
+            Transaction.status == "success",
+        )
+        .order_by(Transaction.created_at.asc(), Transaction.id.asc())
+        .all()
+    )
+
+    # Keep only non-voided
+    valid = [t for t in txs if not _is_voided_tx(t)]
+
+    if not valid:
+        # No valid payments left
+        sub.last_tx_id = None
+        # leave expires_at as-is or clear — safest is keep but mark expired if past
+        # If you prefer: sub.expires_at = None
+        now = utcnow_naive()
+        if sub.expires_at and sub.expires_at <= now:
+            sub.status = "expired"
+        return
+
+    # Rebuild expiry by applying each payment in chronological order
+    expires = None
+    for t in valid:
+        paid_at = getattr(t, "created_at", None)
+        if not paid_at:
+            continue
+
+        # starts_at: first-ever payment time
+        if not getattr(sub, "starts_at", None):
+            sub.starts_at = paid_at
+
+        base = expires if (expires and expires > paid_at) else paid_at
+        expires = base + timedelta(minutes=duration_minutes)
+
+    if expires is not None:
+        sub.expires_at = expires
+
+    # last_tx_id = newest valid tx
+    sub.last_tx_id = valid[-1].id
+
+    # status based on expiry vs now
+    now = utcnow_naive()
+    sub.status = "active" if (sub.expires_at and sub.expires_at > now) else "expired"
+
+    if hasattr(sub, "updated_at"):
+        sub.updated_at = utcnow_naive()
+
+
+# ---------------------------------------------------------
+# Route: void a MANUAL tx (no delete), then recompute expiry
+# ---------------------------------------------------------
+@admin.post("/transactions/<int:tx_id>/void")
+@roles_required("support", "admin")  # or ("finance","admin") if you prefer
+@limiter.limit("30 per minute")
+def transaction_void(tx_id: int):
+    """
+    Void a manually entered payment:
+      - Marks tx as voided (auditable, no deletion)
+      - Recomputes subscription expiry from remaining valid tx history
+    """
+    tx = db.session.get(Transaction, tx_id)
+    if not tx:
+        flash("Transaction not found.", "error")
+        return redirect(url_for("admin.transactions"))
+
+    # Only allow voiding MANUAL payments (protects real M-Pesa records)
+    if not _is_manual_tx(tx):
+        flash("Only manually entered payments can be voided.", "error")
+        return redirect(request.referrer or url_for("admin.transactions"))
+
+    # Already voided?
+    if _is_voided_tx(tx):
+        flash("This payment is already voided.", "warning")
+        return redirect(request.referrer or url_for("admin.transactions"))
+
+    reason = (request.form.get("void_reason") or "").strip()
+    if not reason:
+        flash("Please provide a reason for voiding.", "error")
+        return redirect(request.referrer or url_for("admin.transactions"))
+
+    now = utcnow_naive()
+
+    # Mark tx as voided
+    tx.status = "voided"
+
+    # Keep a readable audit trail in result_desc
+    desc = (tx.result_desc or "Manual payment entry").strip()
+    desc = _append_desc_flag(desc, "voided=1")
+    desc = _append_desc_flag(desc, f"void_reason={reason}")
+    tx.result_desc = desc
+
+    # If your model has updated_at, set safely
+    if hasattr(tx, "updated_at"):
+        tx.updated_at = now
+
+    try:
+        db.session.add(tx)
+
+        # Find the most likely subscription to recompute:
+        # Your manual payments route applies to a selected subscription,
+        # but Transaction doesn't store subscription_id in your snippet.
+        #
+        # Best-effort mapping: use the customer's latest subscription for that package.
+        sub = (
+            Subscription.query
+            .filter(
+                Subscription.customer_id == tx.customer_id,
+                Subscription.package_id == tx.package_id,
+            )
+            .order_by(Subscription.id.desc())
+            .first()
+        )
+
+        if sub:
+            recompute_subscription_expiry_from_valid_payments(sub)
+            db.session.add(sub)
+
+        db.session.commit()
+
+        audit(
+            "manual_payment_voided",
+            {
+                "tx_id": tx.id,
+                "customer_id": tx.customer_id,
+                "package_id": tx.package_id,
+                "reason": reason,
+                "subscription_id": getattr(sub, "id", None) if sub else None,
+            },
+        )
+
+        flash("Payment voided. Subscription recalculated.", "success")
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to void payment: {e}", "error")
+
+    return redirect(request.referrer or url_for("admin.transactions"))
 # =========================================================
 # Phone normalization (Kenya)
 # =========================================================
@@ -680,6 +897,164 @@ def customer_detail(customer_id: int):
     txs = Transaction.query.filter_by(customer_id=customer_id).order_by(Transaction.created_at.desc()).limit(200).all()
 
     return render_template("admin/customer_detail.html", customer=customer, subs=subs, txs=txs, sub_identity=sub_identity)
+
+@admin.post("/customers/<int:customer_id>/payments/manual")
+@roles_required("support", "admin")
+@limiter.limit("30 per minute")
+def customer_manual_payment(customer_id: int):
+    """
+    Manual payment entry (UI):
+    - Creates Transaction(status=success) so it shows in the existing UI immediately
+    - Extends subscription expiry from the admin-entered paid_at (historical), NOT from "now"
+    - Supports optional admin expiry override (expires_at_override)
+    - Updates subscription.last_tx_id
+    """
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
+
+    # -----------------------------
+    # Read form inputs
+    # -----------------------------
+    subscription_id = request.form.get("subscription_id", type=int)
+    amount_raw = (request.form.get("amount") or "").strip()
+    paid_at_raw = (request.form.get("paid_at") or "").strip()
+    receipt = (request.form.get("receipt") or "").strip() or None
+    note = (request.form.get("note") or "").strip() or None
+    expires_override_raw = (request.form.get("expires_at_override") or "").strip()
+
+    if not subscription_id:
+        flash("Select a subscription.", "error")
+        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    sub = db.session.get(Subscription, int(subscription_id))
+    if not sub or sub.customer_id != customer_id:
+        flash("Subscription not found for this customer.", "error")
+        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    if not sub.package:
+        flash("Subscription package missing.", "error")
+        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    # -----------------------------
+    # Validate amount
+    # -----------------------------
+    try:
+        amount_int = int(amount_raw)
+        if amount_int <= 0:
+            raise ValueError()
+    except Exception:
+        flash("Amount must be a positive whole number (e.g. 1000).", "error")
+        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    # -----------------------------
+    # Parse paid_at: EAT datetime-local -> UTC naive (DB convention)
+    # -----------------------------
+    try:
+        paid_at_utc_naive = parse_datetime_local_eat_to_utc_naive(paid_at_raw)
+    except Exception as e:
+        flash(f"Invalid Paid At: {e}", "error")
+        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    # -----------------------------
+    # Optional expiry override: EAT datetime-local -> UTC naive
+    # -----------------------------
+    expires_override_utc_naive = None
+    if expires_override_raw:
+        try:
+            expires_override_utc_naive = parse_datetime_local_eat_to_utc_naive(expires_override_raw)
+        except Exception as e:
+            flash(f"Invalid Expiry Override: {e}", "error")
+            return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+        if expires_override_utc_naive <= paid_at_utc_naive:
+            flash("Expiry override must be AFTER the paid date/time.", "error")
+            return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
+    # -----------------------------
+    # Compute expiry from PAID TIME (historical correctness)
+    # -----------------------------
+    duration_minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
+    if duration_minutes <= 0:
+        duration_minutes = 43200  # fallback 30 days
+
+    base = sub.expires_at if (sub.expires_at and sub.expires_at > paid_at_utc_naive) else paid_at_utc_naive
+    computed_expires = base + timedelta(minutes=duration_minutes)
+
+    sub.status = "active"
+    if not getattr(sub, "starts_at", None):
+        sub.starts_at = paid_at_utc_naive
+
+    sub.expires_at = expires_override_utc_naive or computed_expires
+
+    # Avoid crash if Subscription has no updated_at
+    if hasattr(sub, "updated_at"):
+        sub.updated_at = utcnow_naive()
+
+    # -----------------------------
+    # Create Transaction (use paid_at as tx time)
+    # -----------------------------
+    desc = "Manual payment entry"
+    if note:
+        desc += f" | {note}"
+    if expires_override_utc_naive is not None:
+        desc += " | expiry_override=1"
+
+    tx = Transaction(
+        customer_id=customer.id,
+        package_id=sub.package_id,
+        amount=amount_int,
+        status="success",
+        checkout_request_id=None,
+        merchant_request_id=None,
+        mpesa_receipt=receipt,
+        result_code="MANUAL",
+        result_desc=desc,
+        raw_callback_json=None,
+    )
+
+    # Stamp tx timestamps defensively (models differ)
+    now = utcnow_naive()
+    if hasattr(tx, "created_at") and not getattr(tx, "created_at", None):
+        tx.created_at = paid_at_utc_naive
+    if hasattr(tx, "updated_at"):
+        tx.updated_at = now
+
+    # -----------------------------
+    # Persist atomically
+    # -----------------------------
+    try:
+        db.session.add(tx)
+        db.session.flush()  # tx.id available
+
+        sub.last_tx_id = tx.id
+
+        db.session.add(sub)
+        db.session.commit()
+
+        audit(
+            "manual_payment_recorded",
+            {
+                "customer_id": customer.id,
+                "sub_id": sub.id,
+                "tx_id": tx.id,
+                "amount": amount_int,
+                "paid_at_utc": paid_at_utc_naive.isoformat(),
+                "receipt": receipt,
+                "note": note,
+                "expiry_override": bool(expires_override_utc_naive),
+                "expires_at_utc": (sub.expires_at.isoformat() if sub.expires_at else None),
+            },
+        )
+
+        flash("Manual payment saved. Subscription updated.", "success")
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to save manual payment: {e}", "error")
+
+    return redirect(url_for("admin.customer_detail", customer_id=customer_id))
 
 # =========================================================
 # Phase B — Customer Locations (Ops/Support/Admin)
@@ -1346,17 +1721,23 @@ def pppoe_new():
 def pppoe_create():
     phone_raw = (request.form.get("phone") or "").strip()
     package_id_raw = (request.form.get("package_id") or "").strip()
-    pppoe_username = (request.form.get("pppoe_username") or "").strip().upper()
+    pppoe_username_raw = (request.form.get("pppoe_username") or "").strip().upper()
     months_raw = (request.form.get("months") or "1").strip()
 
     enable_now = request.form.get("enable_now") == "on"
     set_customer_pppoe = request.form.get("set_customer_pppoe") == "on"
 
+    # -----------------------------
+    # Validate phone
+    # -----------------------------
     phone = normalize_phone(phone_raw)
     if not phone or not phone.startswith("2547"):
         flash("Phone is required (use 0712… or 2547… format).", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    # -----------------------------
+    # Validate package
+    # -----------------------------
     try:
         package_id = int(package_id_raw)
     except Exception:
@@ -1368,27 +1749,37 @@ def pppoe_create():
         flash("Select a valid PPPoE package.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    # -----------------------------
+    # Validate months (ALLOW 0)
+    # -----------------------------
     try:
         months = int(months_raw)
-        if months < 1 or months > 36:
+        if months < 0 or months > 36:
             raise ValueError()
     except Exception:
-        flash("Months must be between 1 and 36.", "error")
+        flash("Months must be between 0 and 36.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
-    if not pppoe_username:
-        pppoe_username = _next_pppoe_username()
-
+    # -----------------------------
+    # Username (auto-suggest if blank)
+    # -----------------------------
+    pppoe_username = pppoe_username_raw or _next_pppoe_username()
     if not _parse_pppoe_username(pppoe_username):
         flash("Invalid PPPoE username format. Use D001..D999 or DA0001..", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    # -----------------------------
+    # Find/create customer
+    # -----------------------------
     customer = Customer.query.filter_by(phone=phone).first()
     if not customer:
         customer = Customer(phone=phone)
         db.session.add(customer)
         db.session.flush()
 
+    # -----------------------------
+    # Prevent username collisions with ACTIVE subs
+    # -----------------------------
     exists_active = (
         Subscription.query.filter(
             Subscription.service_type == "pppoe",
@@ -1401,6 +1792,9 @@ def pppoe_create():
         flash(f"PPPoE username {pppoe_username} already has an ACTIVE subscription.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    # -----------------------------
+    # Optionally set customer PPPoE creds
+    # -----------------------------
     if set_customer_pppoe:
         if hasattr(customer, "pppoe_username"):
             if getattr(customer, "pppoe_username", None) and customer.pppoe_username != pppoe_username:
@@ -1411,19 +1805,34 @@ def pppoe_create():
         if hasattr(customer, "pppoe_password") and not getattr(customer, "pppoe_password", None):
             customer.pppoe_password = _gen_pppoe_password()
 
+    # -----------------------------
+    # Build subscription (0 months => pending shell)
+    # -----------------------------
     now = utcnow_naive()
 
-    duration_minutes = int(package.duration_minutes or 0)
+    duration_minutes = int(getattr(package, "duration_minutes", 0) or 0)
     if duration_minutes <= 0:
         duration_minutes = 43200  # 30 days fallback
-    expires_at = now + timedelta(minutes=duration_minutes * months)
+
+    if months == 0:
+        status = "pending"
+        starts_at = None
+        expires_at = None
+        # If they chose enable_now but months=0, we can't enable on router
+        if enable_now:
+            flash("0 months creates a pending subscription. Router enable skipped.", "warning")
+            enable_now = False
+    else:
+        status = "active"
+        starts_at = now
+        expires_at = now + timedelta(minutes=duration_minutes * months)
 
     sub = Subscription(
         customer_id=customer.id,
         package_id=package.id,
         service_type="pppoe",
-        status="active",
-        starts_at=now,
+        status=status,
+        starts_at=starts_at,
         expires_at=expires_at,
         pppoe_username=pppoe_username,
         hotspot_username=None,
@@ -1432,23 +1841,30 @@ def pppoe_create():
     db.session.add(sub)
     db.session.flush()
 
-    tx = Transaction(
-        customer_id=customer.id,
-        package_id=package.id,
-        amount=int(package.price_kes or 0),
-        status="success",
-        checkout_request_id=None,
-        merchant_request_id=None,
-        mpesa_receipt=None,
-        result_code="ADMIN",
-        result_desc=f"Admin PPPoE activation ({months} month(s))",
-        raw_callback_json=None,
-    )
-    db.session.add(tx)
-    db.session.flush()
+    # -----------------------------
+    # Create Transaction ONLY if months > 0
+    # -----------------------------
+    tx = None
+    if months > 0:
+        tx = Transaction(
+            customer_id=customer.id,
+            package_id=package.id,
+            amount=int(package.price_kes or 0),
+            status="success",
+            checkout_request_id=None,
+            merchant_request_id=None,
+            mpesa_receipt=None,
+            result_code="ADMIN",
+            result_desc=f"Admin PPPoE activation ({months} month(s))",
+            raw_callback_json=None,
+        )
+        db.session.add(tx)
+        db.session.flush()
+        sub.last_tx_id = tx.id
 
-    sub.last_tx_id = tx.id
-
+    # -----------------------------
+    # Commit
+    # -----------------------------
     try:
         db.session.commit()
     except IntegrityError:
@@ -1460,6 +1876,9 @@ def pppoe_create():
         flash(f"Failed to create PPPoE subscription: {e}", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    # -----------------------------
+    # Optional router provisioning
+    # -----------------------------
     router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
 
     if enable_now:
@@ -1477,8 +1896,14 @@ def pppoe_create():
                 flash("PPPoE provisioned/enabled on router.", "success")
             except Exception as e:
                 flash(f"Router provisioning failed: {e}", "error")
-                audit("pppoe_router_provision_failed", {"sub_id": sub.id, "pppoe_username": pppoe_username, "error": str(e)})
+                audit(
+                    "pppoe_router_provision_failed",
+                    {"sub_id": sub.id, "pppoe_username": pppoe_username, "error": str(e)},
+                )
 
+    # -----------------------------
+    # Audit + redirect
+    # -----------------------------
     audit(
         "pppoe_subscription_created",
         {
@@ -1488,15 +1913,19 @@ def pppoe_create():
             "pppoe_username": pppoe_username,
             "package_code": getattr(package, "code", None),
             "months": months,
+            "status": status,
             "expires_at": expires_at.isoformat() if expires_at else None,
             "router_enabled": router_enabled,
-            "router_provision_attempted": enable_now,
+            "router_provision_attempted": bool(enable_now),
         },
     )
 
+    if months == 0:
+        flash(f"PPPoE subscription shell created: {pppoe_username} (pending; no expiry set)", "success")
+        return redirect(url_for("admin.subscriptions", svc="pppoe", status="pending", q=pppoe_username))
+
     flash(f"PPPoE subscription created: {pppoe_username} (expires {expires_at})", "success")
     return redirect(url_for("admin.subscriptions", svc="pppoe", status="active", q=pppoe_username))
-
 
 # =========================================================
 # Subscriptions (Ops/Support/Admin)

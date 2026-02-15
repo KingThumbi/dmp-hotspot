@@ -12,18 +12,20 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db
-from app.models import MpesaPayment  # must match your model/table name
+from app.models import MpesaPayment
 
 mpesa_bp = Blueprint("mpesa", __name__, url_prefix="/api/mpesa")
+
 
 @mpesa_bp.errorhandler(Exception)
 def mpesa_bp_errorhandler(e):
     current_app.logger.exception("Unhandled error in /api/mpesa/*")
     return jsonify({"ok": False, "error": "Internal Server Error"}), 500
 
-# ----------------------------
+
+# ======================================================
 # Helpers / Config
-# ----------------------------
+# ======================================================
 @dataclass(frozen=True)
 class MpesaConfig:
     env: str
@@ -61,8 +63,12 @@ def load_mpesa_config() -> MpesaConfig:
     Loads required Daraja config from environment variables.
     Keeps defaults safe and explicit.
     """
+    env = os.getenv("MPESA_ENV", "sandbox").strip().lower()
+    if env not in {"sandbox", "production"}:
+        raise RuntimeError("MPESA_ENV must be 'sandbox' or 'production'")
+
     return MpesaConfig(
-        env=os.getenv("MPESA_ENV", "sandbox").strip(),
+        env=env,
         consumer_key=_require_env("MPESA_CONSUMER_KEY"),
         consumer_secret=_require_env("MPESA_CONSUMER_SECRET"),
         shortcode=_require_env("MPESA_SHORTCODE"),
@@ -101,7 +107,6 @@ def _oauth_token(cfg: MpesaConfig) -> str:
     url = f"{_base_url(cfg.env)}/oauth/v1/generate?grant_type=client_credentials"
     r = requests.get(url, auth=(cfg.consumer_key, cfg.consumer_secret), timeout=30)
     if r.status_code >= 400:
-        # Helpful logs when credentials/env are wrong
         current_app.logger.error("OAuth failed status=%s body=%s", r.status_code, r.text)
     r.raise_for_status()
     data = r.json() or {}
@@ -132,7 +137,6 @@ def stk_push(
         raise ValueError("amount must be a positive integer.")
 
     url = f"{_base_url(cfg.env)}/mpesa/stkpush/v1/processrequest"
-
     timestamp = dt.datetime.utcnow().strftime("%Y%m%d%H%M%S")
     password = _stk_password(cfg.shortcode, cfg.passkey, timestamp)
 
@@ -149,23 +153,16 @@ def stk_push(
         "PartyB": cfg.shortcode,
         "PhoneNumber": phone_254,
         "CallBackURL": cfg.callback_url,
-        # ✅ dynamic account reference (pppoe/hotspot identity) if provided
         "AccountReference": (account_ref or cfg.account_ref),
         "TransactionDesc": cfg.tx_desc,
     }
 
-    # Queue timeout URL is optional
     if cfg.timeout_url:
         payload["QueueTimeOutURL"] = cfg.timeout_url
 
     r = requests.post(url, json=payload, headers=headers, timeout=30)
     if r.status_code >= 400:
-        current_app.logger.error(
-            "STK push failed status=%s body=%s payload=%s",
-            r.status_code,
-            r.text,
-            payload,
-        )
+        current_app.logger.error("STK push failed status=%s body=%s payload=%s", r.status_code, r.text, payload)
     r.raise_for_status()
     return r.json() or {}
 
@@ -194,7 +191,7 @@ def _extract_stk_callback(payload: Dict[str, Any]) -> Tuple[Optional[str], Optio
 
 
 def _utcnow_naive() -> dt.datetime:
-    """UTC-naive timestamp (matches your DB convention)."""
+    """UTC-naive timestamp (matches your DB convention for subscriptions)."""
     return dt.datetime.utcnow()
 
 
@@ -209,47 +206,139 @@ def _activate_or_extend_subscription(sub, *, now: dt.datetime) -> None:
         raise RuntimeError("Package duration_minutes is missing/invalid")
 
     base = sub.expires_at if (sub.expires_at and sub.expires_at > now) else now
-    new_expires = base + dt.timedelta(minutes=minutes)
-
     sub.status = "active"
     if not getattr(sub, "starts_at", None):
         sub.starts_at = now
-    sub.expires_at = new_expires
+    sub.expires_at = base + dt.timedelta(minutes=minutes)
 
 
-def _hotspot_enable_now(app, sub, *, tx_ref: str) -> None:
+# ======================================================
+# Reconciliation/Activation helpers
+# ======================================================
+def mark_payment_failed(
+    payment: MpesaPayment,
+    *,
+    status: str,
+    result_code: Optional[int],
+    result_desc: str,
+    raw: Any,
+    now: Optional[dt.datetime] = None,
+    bump_reconcile: bool = True,
+) -> None:
     """
-    Immediate hotspot enable:
-      - ensure user exists + enabled with correct profile
-      - kick active sessions so policy applies immediately
+    Mark payment failed/cancelled/timeout and persist.
+
+    Also updates reconciliation tracking so callers (scheduler/timeout route)
+    don't need to do extra commits.
+
+    Args:
+      status: "failed" | "cancelled" | "timeout" | etc.
+      result_code/result_desc: from callback or stk query (optional)
+      raw: payload to store for audit
+      now: timezone-aware UTC datetime; defaults to dt.now(UTC)
+      bump_reconcile: when True, increments reconcile_attempts and sets last_reconcile_at
     """
-    from app.services.mikrotik_hotspot import ensure_hotspot_user, kick_hotspot_active
+    ts = now or dt.datetime.now(dt.timezone.utc)
 
-    username = (getattr(sub, "hotspot_username", "") or "").strip()
-    profile = (getattr(getattr(sub, "package", None), "mikrotik_profile", "") or "").strip()
+    payment.status = status
+    payment.result_code = result_code
+    payment.result_desc = result_desc
+    payment.raw_callback = raw
+    payment.external_updated_at = ts
 
-    if not username or not profile:
-        current_app.logger.warning(
-            "Hotspot router enable skipped (missing username/profile) sub_id=%s username=%s profile=%s",
-            getattr(sub, "id", None),
-            username or "-",
-            profile or "-",
-        )
+    if bump_reconcile:
+        payment.reconcile_attempts = int(payment.reconcile_attempts or 0) + 1
+        payment.last_reconcile_at = ts
+
+    # Keep updated_at consistent when you do non-callback updates
+    try:
+        payment.updated_at = ts
+    except Exception:
+        pass
+
+    db.session.add(payment)
+    db.session.commit()
+
+def finalize_success_and_activate(
+    payment: MpesaPayment,
+    *,
+    mpesa_receipt: Optional[str],
+    paid_at: Optional[dt.datetime],
+    raw: Any,
+) -> None:
+    """
+    DB-first finalization, then subscription activation + router hooks.
+    Safe to call multiple times.
+    """
+    # Idempotency: if already success and we have a receipt, do nothing
+    if (payment.status or "").strip().lower() in {"success", "reconciled"} and payment.mpesa_receipt:
         return
 
-    ensure_hotspot_user(
-        app,
-        username=username,
-        profile=profile,
-        expires_at=sub.expires_at,
-        comment_extra=f"tx={tx_ref}",
-    )
-    kick_hotspot_active(app, username)
+    payment.status = "success"
+    payment.paid_at = paid_at or dt.datetime.now(dt.timezone.utc)
+    if mpesa_receipt:
+        payment.mpesa_receipt = str(mpesa_receipt)
+    payment.raw_callback = raw
+    payment.external_updated_at = dt.datetime.now(dt.timezone.utc)
+
+    db.session.add(payment)
+    db.session.commit()  # commit first
+
+    _activate_subscription_and_router(payment)
 
 
-# ----------------------------
+def _activate_subscription_and_router(payment: MpesaPayment) -> None:
+    """
+    Shared activation logic:
+      - extend subscription in DB
+      - commit
+      - then router hooks via router_actions.reconnect_subscription (best-effort)
+
+    If activation/router fails, mark payment activation_failed (but keep payment success).
+    """
+    try:
+        from app.models import Subscription
+
+        sub = Subscription.query.get(payment.subscription_id) if payment.subscription_id else None
+        now = _utcnow_naive()
+
+        if sub:
+            _activate_or_extend_subscription(sub, now=now)
+            db.session.add(sub)
+
+        db.session.add(payment)
+        db.session.commit()
+
+        if not sub:
+            return
+
+        router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
+        dry_run = _bool_env("ROUTER_AUTOMATION_DRY_RUN", True)
+
+        if router_enabled:
+            try:
+                from app.services.router_actions import reconnect_subscription
+
+                reconnect_subscription(sub, reason="payment_received", dry_run=dry_run)
+            except Exception:
+                current_app.logger.exception("Router reconnect hook failed (activation)")
+
+    except Exception as e:
+        try:
+            payment.status = "activation_failed"
+            payment.activation_attempts = (payment.activation_attempts or 0) + 1
+            payment.last_activation_at = dt.datetime.now(dt.timezone.utc)
+            payment.activation_error = str(e)
+            db.session.add(payment)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        raise
+
+
+# ======================================================
 # Routes
-# ----------------------------
+# ======================================================
 @mpesa_bp.get("/ping")
 def mpesa_ping():
     return jsonify({"ok": True, "where": "mpesa_bp", "prefix": "/api/mpesa"}), 200
@@ -269,14 +358,12 @@ def mpesa_stkpush_route():
         2) subscription.identity() (pppoe_username/hotspot_username) if subscription_id provided
         3) cfg.account_ref fallback inside stk_push
     """
-    # 1) Load config
     try:
         cfg = load_mpesa_config()
     except Exception as e:
         current_app.logger.exception("M-Pesa config error")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    # 2) Parse request body
     data = request.get_json(force=True, silent=True) or {}
     phone_raw = (data.get("phone") or "").strip()
     amount = data.get("amount")
@@ -284,7 +371,6 @@ def mpesa_stkpush_route():
     if not phone_raw or amount is None:
         return jsonify({"ok": False, "error": "phone and amount are required"}), 400
 
-    # 3) Validate and normalize
     try:
         phone_254 = normalize_phone_to_254(phone_raw)
 
@@ -292,21 +378,17 @@ def mpesa_stkpush_route():
         if amount_int <= 0:
             raise ValueError("Amount must be a positive integer.")
 
-        # Store Decimal(12,2) in DB
         amount_money = Decimal(str(amount_int)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 
-    # 4) Optional linking fields
     customer_id = data.get("customer_id")
     subscription_id = data.get("subscription_id")
 
-    # 5) Resolve AccountReference (optional, dynamic)
-    #    First: explicit input; else: subscription identity; else: stk_push will fallback to cfg.account_ref
     account_ref = (data.get("account_ref") or "").strip() or None
     if not account_ref and subscription_id:
         try:
-            from app.models import Subscription  # local import avoids circulars
+            from app.models import Subscription
 
             sub = Subscription.query.get(int(subscription_id))
             if sub:
@@ -316,7 +398,7 @@ def mpesa_stkpush_route():
         except Exception:
             current_app.logger.exception("Failed resolving subscription identity for AccountReference")
 
-    # 6) Create payment row first (audit trail)
+    # Create payment row first (audit trail)
     payment = MpesaPayment(
         customer_id=customer_id,
         subscription_id=subscription_id,
@@ -328,14 +410,9 @@ def mpesa_stkpush_route():
     db.session.add(payment)
     db.session.commit()
 
-    # 7) Call Daraja STK push
+    # Call Daraja STK push
     try:
-        resp = stk_push(
-            cfg=cfg,
-            phone_254=phone_254,
-            amount=amount_int,          # Daraja expects int
-            account_ref=account_ref,    # can be None
-        )
+        resp = stk_push(cfg=cfg, phone_254=phone_254, amount=amount_int, account_ref=account_ref)
     except requests.HTTPError as e:
         payment.status = "failed"
         payment.raw_callback = {"error": "http_error", "details": str(e)}
@@ -349,7 +426,7 @@ def mpesa_stkpush_route():
         current_app.logger.exception("STK push error")
         return jsonify({"ok": False, "error": "STK push failed", "payment_id": payment.id}), 500
 
-    # 8) Update payment with Daraja identifiers + status
+    # Update payment with Daraja identifiers + status
     payment.checkout_request_id = resp.get("CheckoutRequestID")
     payment.merchant_request_id = resp.get("MerchantRequestID")
 
@@ -360,15 +437,15 @@ def mpesa_stkpush_route():
         payment.raw_callback = {"daraja_response": resp}
 
     db.session.commit()
-
     return jsonify({"ok": True, "payment_id": payment.id, "daraja": resp}), 200
+
 
 @mpesa_bp.post("/callback")
 def mpesa_callback_route():
     """
     Safaricom STK callback endpoint.
     MUST always return 200 OK quickly.
-    DB activate/extend first; router enable after DB commit.
+    DB activate/extend first; router action after DB commit.
     """
     payload = request.get_json(force=True, silent=True) or {}
     checkout_id, result_code_int, result_desc, meta = _extract_stk_callback(payload)
@@ -394,7 +471,7 @@ def mpesa_callback_route():
     payment.raw_callback = payload
 
     # Idempotency: already success? ACK and exit (do NOT extend again)
-    if (payment.status or "").strip().lower() == "success":
+    if (payment.status or "").strip().lower() in {"success", "reconciled"}:
         try:
             db.session.add(payment)
             db.session.commit()
@@ -403,86 +480,110 @@ def mpesa_callback_route():
             current_app.logger.exception("Failed committing idempotent callback save")
         return jsonify({"ok": True, "status": "success"}), 200
 
-    # --------------------
-    # Success path
-    # --------------------
     if result_code_int == 0:
-        payment.status = "success"
-        payment.paid_at = dt.datetime.now(dt.timezone.utc)
-
         receipt = meta.get("MpesaReceiptNumber")
-        if receipt:
-            payment.mpesa_receipt = str(receipt)
+        paid_at = dt.datetime.now(dt.timezone.utc)
 
+        # Amount/phone updates (from callback)
         if meta.get("Amount") is not None:
-            payment.amount = Decimal(str(meta.get("Amount"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            try:
+                payment.amount = Decimal(str(meta.get("Amount"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except Exception:
+                current_app.logger.exception("Failed to parse callback Amount")
 
         if meta.get("PhoneNumber") is not None:
-            # callback phone might be numeric
             payment.phone = str(meta.get("PhoneNumber"))
 
-        # Activate/extend subscription, commit DB, then router enable
         try:
-            from app.models import Subscription  # local import to avoid circulars
-
-            sub = Subscription.query.get(payment.subscription_id) if payment.subscription_id else None
-            now = _utcnow_naive()
-            app_obj = current_app._get_current_object()
-
-            if sub:
-                _activate_or_extend_subscription(sub, now=now)
-                db.session.add(sub)
-
-            db.session.add(payment)
-            db.session.commit()
-
-            # Router actions AFTER commit (guarded)
-            if sub:
-                tx_ref = payment.mpesa_receipt or checkout_id or f"pay_id={payment.id}"
-
-                # Hotspot immediate enable
-                if (getattr(sub, "service_type", "") or "").strip().lower() == "hotspot":
-                    try:
-                        _hotspot_enable_now(app_obj, sub, tx_ref=tx_ref)
-                    except Exception:
-                        current_app.logger.exception("Hotspot router enable hook failed (payment success)")
-
-                # Optional generic reconnect hook (PPPoE etc.)
-                enabled = _bool_env("ROUTER_AUTOMATION_ENABLED", False)
-                dry_run = _bool_env("ROUTER_AUTOMATION_DRY_RUN", True)
-                if enabled:
-                    try:
-                        from app.services.router_actions import reconnect_subscription
-                        reconnect_subscription(sub, reason="payment_received", dry_run=dry_run)
-                    except Exception:
-                        current_app.logger.exception("Router reconnect hook failed")
-
+            finalize_success_and_activate(
+                payment,
+                mpesa_receipt=str(receipt) if receipt else None,
+                paid_at=paid_at,
+                raw=payload,
+            )
             return jsonify({"ok": True, "status": "success"}), 200
-
         except Exception:
-            # Payment still success; persist it even if activation/router fails
-            current_app.logger.exception("Payment success but subscription/router activation failed")
-            try:
-                db.session.rollback()
-            except Exception:
-                pass
-            try:
-                payment.status = "success"
-                db.session.add(payment)
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
+            current_app.logger.exception("Payment success finalize/activation failed")
+            # Always ACK 200 to Safaricom
             return jsonify({"ok": True, "status": "success"}), 200
 
-    # --------------------
     # Failure path
-    # --------------------
     try:
-        payment.status = "failed"
-        db.session.add(payment)
-        db.session.commit()
+        mark_payment_failed(
+            payment,
+            status="cancelled" if result_code_int == 1032 else "failed",
+            result_code=result_code_int,
+            result_desc=result_desc or "Payment failed",
+            raw=payload,
+            now=dt.datetime.now(dt.timezone.utc),
+            bump_reconcile=False,  # LIVE callback, not reconciliation
+        )
     except Exception:
         db.session.rollback()
         current_app.logger.exception("Failed saving failed payment callback")
 
-    return jsonify({"ok": True, "status": "failed", "result_desc": result_desc}), 200
+        final_status = "cancelled" if result_code_int == 1032 else "failed"
+        return jsonify({"ok": True, "status": final_status, "result_desc": result_desc}), 200
+
+
+@mpesa_bp.post("/timeout")
+def mpesa_timeout_route():
+    """
+    Safaricom QueueTimeOutURL endpoint for STK Push.
+    MUST return 200 OK quickly.
+
+    We best-effort map to a payment by CheckoutRequestID and mark it as timeout.
+    This is considered "reconcile-like", so we bump reconcile counters.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+
+    checkout_id = (
+        payload.get("CheckoutRequestID")
+        or payload.get("checkoutRequestID")
+        or ((payload.get("Body") or {}).get("stkCallback") or {}).get("CheckoutRequestID")
+    )
+
+    now = dt.datetime.now(dt.timezone.utc)
+
+    try:
+        if not checkout_id:
+            current_app.logger.warning("STK timeout received without CheckoutRequestID: %s", payload)
+            return jsonify({"ok": True, "status": "received_unmatched"}), 200
+
+        payment = (
+            MpesaPayment.query
+            .filter(MpesaPayment.checkout_request_id == str(checkout_id))
+            .order_by(MpesaPayment.id.desc())
+            .first()
+        )
+
+        if not payment:
+            current_app.logger.warning("Unmatched STK timeout checkout_id=%s payload=%s", checkout_id, payload)
+            return jsonify({"ok": True, "status": "received_unmatched", "checkout_request_id": checkout_id}), 200
+
+        current_status = (payment.status or "").strip().lower()
+        if current_status in {"success", "reconciled"}:
+            # still store payload for audit, but don't change status
+            payment.raw_callback = payload
+            payment.external_updated_at = now
+            db.session.add(payment)
+            db.session.commit()
+            return jsonify({"ok": True, "status": current_status}), 200
+
+        # If still pending (or anything not finalized), mark as timeout via helper
+        mark_payment_failed(
+            payment,
+            status="timeout",
+            result_code=None,
+            result_desc="Queue timeout (Safaricom QueueTimeOutURL).",
+            raw=payload,
+            now=now,
+            bump_reconcile=True,
+        )
+
+        return jsonify({"ok": True, "status": "timeout"}), 200
+
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed handling STK timeout callback")
+        return jsonify({"ok": True, "status": "error_ack"}), 200

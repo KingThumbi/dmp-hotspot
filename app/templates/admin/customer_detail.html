@@ -1,3 +1,4 @@
+{# app/templates/admin/customer_detail.html #}
 {% extends "admin/base.html" %}
 {% block title %}Customer{% endblock %}
 {% block header %}Customer{% endblock %}
@@ -21,8 +22,7 @@
 {% block content %}
   <style>
     /* -------------------------------------------------------
-       Customer Detail — Dashboard-grade table + layout polish
-       (HTML-only: no backend assumptions, no variable changes)
+       Customer Detail — clean admin look + safe responsive tables
     -------------------------------------------------------- */
 
     .mono{
@@ -47,7 +47,7 @@
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
-      gap:10px;
+      gap:12px;
       padding:12px 14px;
       border-bottom: 1px solid var(--border);
       background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
@@ -74,12 +74,11 @@
     .panel-actions{
       display:flex;
       gap:8px;
-      align-items:center;
+      align-items:flex-start;
       flex-wrap:wrap;
       justify-content:flex-end;
     }
 
-    /* Responsive table wrapper */
     .table-wrap{
       overflow:auto;
       -webkit-overflow-scrolling: touch;
@@ -89,7 +88,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width: 760px; /* ensures columns don't crush */
+      min-width: 760px;
     }
 
     thead th{
@@ -120,7 +119,6 @@
       background: rgba(0,0,0,.015);
     }
 
-    /* Safe text handling for long values */
     .truncate{
       max-width: 260px;
       overflow:hidden;
@@ -136,7 +134,6 @@
       word-break: break-word;
     }
 
-    /* Small helper pills (reuse existing .pill if defined in base) */
     .pill{
       display:inline-flex;
       align-items:center;
@@ -158,17 +155,74 @@
 
     .muted2{ color: var(--muted); opacity:.9; }
 
-    /* Empty state inside panels */
     .empty{
       padding:14px;
       color: var(--muted);
       font-size:13px;
     }
 
-    /* Mobile: allow panels to breathe */
+    /* Manual payment form styling (labelled fields) */
+    .mp-form{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      justify-content:flex-end;
+    }
+
+    .fg{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width: 180px;
+    }
+
+    .lbl{
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.25px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .hint{
+      font-size:11px;
+      color: var(--muted);
+      opacity:.85;
+      margin-top: -2px;
+      max-width: 260px;
+      line-height:1.25;
+    }
+
+    .field{
+      padding:10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--card, #fff);
+      color: inherit;
+      font: inherit;
+      outline: none;
+      min-height: 40px;
+    }
+
+    select.field{ cursor:pointer; }
+    .w-sub{ min-width: 260px; }
+    .w-amt{ width: 150px; min-width: 150px; }
+    .w-dt{ width: 210px; min-width: 210px; }
+    .w-wide{ width: 220px; min-width: 220px; }
+
+    .btn-inline{
+      margin-top: 18px; /* aligns with inputs */
+      white-space: nowrap;
+    }
+
     @media (max-width: 720px){
-      table{ min-width: 860px; } /* allow horizontal scroll instead of crushing */
+      table{ min-width: 900px; }
       .panel-head{ align-items:flex-start; }
+      .panel-actions{ justify-content:flex-start; }
+      .mp-form{ justify-content:flex-start; }
+      .fg{ min-width: 220px; }
+      .btn-inline{ margin-top: 0; }
     }
   </style>
 
@@ -214,7 +268,6 @@
                   <span class="pill pill--info" title="{{ s.service_type }}">{{ s.service_type }}</span>
                 </td>
 
-                {# keep backend values unchanged; styling is defensive #}
                 {% set st = (s.status|string)|lower %}
                 <td>
                   {% if 'active' in st or 'enabled' in st %}
@@ -273,8 +326,73 @@
             <span class="mono">{{ txs|length }} total</span>
           </div>
         </div>
+
         <div class="panel-actions">
           <a class="btn" href="{{ url_for('admin.customers') }}">All Customers</a>
+
+          {# Manual payment entry (UI) #}
+          <form method="post"
+                action="{{ url_for('admin.customer_manual_payment', customer_id=customer.id) }}"
+                class="mp-form">
+
+            <div class="fg">
+              <label class="lbl" for="mp_subscription_id">Subscription</label>
+              <select id="mp_subscription_id" name="subscription_id" required class="field w-sub"
+                      aria-label="Select subscription to apply payment to">
+                <option value="" selected disabled>Select subscription</option>
+                {% for s in subs %}
+                  <option value="{{ s.id }}">
+                    #{{ s.id }} — {{ s.service_type }} — {{ sub_identity(s) or "-" }}
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="hint">Choose the service you are recording payment for.</div>
+            </div>
+
+            <div class="fg">
+              <label class="lbl" for="mp_amount">Amount (KES)</label>
+              <input id="mp_amount" name="amount" required inputmode="numeric" pattern="[0-9]+"
+                     class="field w-amt" placeholder="e.g. 1000"
+                     aria-label="Amount in Kenya shillings" />
+              <div class="hint">Whole number only (e.g. 1000).</div>
+            </div>
+
+            <div class="fg">
+              <label class="lbl" for="mp_paid_at">Paid date &amp; time (EAT)</label>
+              <input id="mp_paid_at" name="paid_at" required type="datetime-local" step="60"
+                     class="field w-dt"
+                     aria-label="Paid date and time in Africa/Nairobi timezone" />
+              <div class="hint">Use the customer’s actual payment time.</div>
+            </div>
+
+            <div class="fg">
+              <label class="lbl" for="mp_expires_override">Expiry override (optional, EAT)</label>
+              <input id="mp_expires_override" name="expires_at_override" type="datetime-local" step="60"
+                     class="field w-dt"
+                     aria-label="Optional expiry override in Africa/Nairobi timezone" />
+              <div class="hint">Optional. Must be after the paid time.</div>
+            </div>
+
+            <div class="fg">
+              <label class="lbl" for="mp_receipt">Receipt / Reference (optional)</label>
+              <input id="mp_receipt" name="receipt" class="field w-wide"
+                     placeholder="e.g. QBC7H9..."
+                     aria-label="Receipt or reference number" />
+              <div class="hint">M-Pesa receipt, cash ref, bank ref, etc.</div>
+            </div>
+
+            <div class="fg">
+              <label class="lbl" for="mp_note">Internal note (optional)</label>
+              <input id="mp_note" name="note" class="field w-wide"
+                     placeholder="e.g. Backdated payment"
+                     aria-label="Internal note" />
+              <div class="hint">Visible to staff only.</div>
+            </div>
+
+            <button class="btn btn-primary btn-inline" type="submit" title="Save payment and update subscription">
+              Record Payment
+            </button>
+          </form>
         </div>
       </div>
 
@@ -289,6 +407,7 @@
               <th>Checkout</th>
               <th>Receipt</th>
               <th>Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -302,6 +421,8 @@
                     <span class="pill pill--ok" title="{{ t.status }}">{{ t.status }}</span>
                   {% elif 'failed' in ts or 'cancel' in ts or 'timeout' in ts %}
                     <span class="pill pill--bad" title="{{ t.status }}">{{ t.status }}</span>
+                  {% elif 'void' in ts %}
+                    <span class="pill pill--warn" title="{{ t.status }}">{{ t.status }}</span>
                   {% else %}
                     <span class="pill pill--warn" title="{{ t.status }}">{{ t.status }}</span>
                   {% endif %}
@@ -332,10 +453,36 @@
                 <td class="muted2">
                   <span class="truncate" title="{{ t.created_at }}">{{ t.created_at }}</span>
                 </td>
+
+                <td>
+                  {% set rc = (t.result_code|string)|upper %}
+                  {% set is_manual = (rc == "MANUAL") %}
+                  {% set is_success = ('success' in ts) %}
+                  {% set is_voided = ('void' in ts) or ('voided=1' in ((t.result_desc or '')|lower)) %}
+
+                  {% if is_manual and is_success and not is_voided %}
+                    <form method="post"
+                          action="{{ url_for('admin.transaction_void', tx_id=t.id) }}"
+                          style="display:inline;"
+                          onsubmit="
+                            const reason = prompt('Void manual payment\\n\\nReason (required):');
+                            if (!reason || !reason.trim()) { alert('Void reason is required.'); return false; }
+                            this.querySelector('input[name=void_reason]').value = reason.trim();
+                            return confirm('Are you sure? This will void the payment and recalculate subscription expiry.');
+                          ">
+                      <input type="hidden" name="void_reason" value="">
+                      <button class="btn" type="submit" title="Void this manual payment">Void</button>
+                    </form>
+                  {% elif is_voided %}
+                    <span class="pill pill--warn" title="{{ t.result_desc or 'Voided' }}">Voided</span>
+                  {% else %}
+                    <span class="muted2">—</span>
+                  {% endif %}
+                </td>
               </tr>
             {% else %}
               <tr>
-                <td colspan="7" style="padding:0;">
+                <td colspan="8" style="padding:0;">
                   <div class="empty">No transactions yet.</div>
                 </td>
               </tr>
