@@ -1256,7 +1256,7 @@ def _activate_location_tx(customer_id: int, location_id: int) -> None:
     active_loc = (
         CustomerLocation.query
         .filter(CustomerLocation.customer_id == customer_id, CustomerLocation.active.is_(True))
-        .with_for_update()
+        .with_for_update(of=CustomerLocation)
         .first()
     )
     if active_loc and active_loc.id != location_id:
@@ -1268,7 +1268,7 @@ def _activate_location_tx(customer_id: int, location_id: int) -> None:
     loc = (
         CustomerLocation.query
         .filter(CustomerLocation.id == location_id, CustomerLocation.customer_id == customer_id)
-        .with_for_update()
+        .with_for_update(of=CustomerLocation)
         .first()
     )
     if not loc:
