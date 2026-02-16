@@ -91,6 +91,17 @@ def create_app() -> Flask:
     app.register_blueprint(mpesa_bp)  # /api/mpesa/*
 
     # ---------------------------------------------------------
+    # 7.5) Register CLI module commands (router/audit/resync/etc.)
+    # ---------------------------------------------------------
+    try:
+        from . import cli as cli_module
+        if hasattr(cli_module, "init_app"):
+            cli_module.init_app(app)
+    except Exception:
+        # Don't crash app startup due to CLI wiring; log it.
+        app.logger.exception("CLI init failed")
+
+    # ---------------------------------------------------------
     # 8) Context processor
     # ---------------------------------------------------------
     @app.context_processor
@@ -214,10 +225,9 @@ def create_app() -> Flask:
     start_scheduler()
 
     # ---------------------------------------------------------
-    # 11) CLI Commands (Flask 3.x reliable registration)
+    # 11) Existing CLI Commands you already had
     # ---------------------------------------------------------
     from .cli import ping_cli, sub_disconnect_last, sub_reconnect_last
-
     app.cli.add_command(ping_cli)
     app.cli.add_command(sub_disconnect_last)
     app.cli.add_command(sub_reconnect_last)

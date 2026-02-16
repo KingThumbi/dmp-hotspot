@@ -61,6 +61,8 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
     with app.app_context():
         now = _utcnow_naive()
 
+        limit_n = int(app.config.get("EXPIRY_ENFORCE_LIMIT", 50))
+
         expired = (
             Subscription.query
             .filter(
@@ -125,6 +127,8 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
     """
     with app.app_context():
         now = _utcnow_naive()
+
+        limit_n = int(app.config.get("EXPIRY_ENFORCE_LIMIT", 50))
 
         expired = (
             Subscription.query
