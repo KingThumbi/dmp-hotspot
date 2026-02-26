@@ -428,6 +428,13 @@
             </a>
           {% endif %}
 
+          {# Public Leads: Admin + Support #}
+          {% if is_admin or me.can_support() %}
+            <a class="navlink" href="{{ url_for('admin.public_leads_list') }}">
+              <span>Public Leads</span>
+            </a>
+          {% endif %}
+
         </div>
 
         <div class="navsection">
@@ -474,8 +481,9 @@
           <div class="navtitle">Administration</div>
           {# Only show if the route actually exists (prevents BuildError) #}
           {% if is_admin %}
-              <a class="navlink" href="{{ url_for('admin.users_list') }}">
-              <span>Users</span></a>
+            <a class="navlink" href="{{ url_for('admin.users_list') }}">
+              <span>Users</span>
+            </a>
           {% endif %}
         </div>
 

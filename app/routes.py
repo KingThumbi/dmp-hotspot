@@ -6,13 +6,16 @@ import json
 import logging
 import math
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
+from app.services.notify import notify_admin_new_lead
 
 import requests
 from flask import (
     Blueprint,
+    Response,
     abort,
     current_app,
     flash,
@@ -26,7 +29,7 @@ from flask import (
 from sqlalchemy import desc, func
 
 from .extensions import db
-from .models import Customer, Package, Subscription, Transaction
+from .models import Customer, Package, Subscription, Transaction, PublicLead
 
 # =========================================================
 # Blueprint + Logging
@@ -46,6 +49,46 @@ MIN_CUSTOMER_PRICE_KES = 10
 # Session key for "Home Internet customer portal" (no password flow)
 HI_SESSION_KEY = "hi_customer_id"
 
+# =========================================================
+# Router Agent API (MikroTik Pull Model)
+# =========================================================
+
+def _router_auth_ok(token: str) -> bool:
+    expected = (current_app.config.get("ROUTER_AGENT_TOKEN") or "").strip()
+    return bool(expected) and secrets.compare_digest(token or "", expected)
+
+@main.get("/api/router/ping")
+def api_router_ping():
+    # Must be 200 OK (no redirects) so RouterOS can test connectivity
+    return Response("ok\n", mimetype="text/plain")
+
+@main.get("/api/router/jobs")
+def api_router_jobs():
+    router_id = (request.args.get("router") or "").strip()
+    token = (request.args.get("token") or "").strip()
+
+    if not router_id or not _router_auth_ok(token):
+        return Response("unauthorized\n", status=401, mimetype="text/plain")
+
+    # TEMP: return no jobs (safe). We'll plug real jobs next.
+    # Return plain-text lines, one job per line:
+    #   <job_id> <action> <username> <arg(optional)>
+    return Response("", mimetype="text/plain")
+
+@main.get("/api/router/ack")
+def api_router_ack():
+    router_id = (request.args.get("router") or "").strip()
+    token = (request.args.get("token") or "").strip()
+    job_id = (request.args.get("job_id") or "").strip()
+
+    if not router_id or not _router_auth_ok(token):
+        return Response("unauthorized\n", status=401, mimetype="text/plain")
+
+    # TEMP: accept ACKs even before we persist jobs
+    if not job_id:
+        return Response("bad job_id\n", status=400, mimetype="text/plain")
+
+    return Response("ok\n", mimetype="text/plain")
 
 # =========================================================
 # Time helpers
@@ -1075,3 +1118,103 @@ def mpesa_callback():
 @main.get("/health")
 def health():
     return jsonify({"ok": True, "time_utc": now_utc_naive().isoformat()}), 200
+
+# ======================================================
+# Public Website API (DmpolinConnect frontend)
+# ======================================================
+
+@main.post("/api/public/leads/coverage")
+def public_lead_coverage():
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    estate = (data.get("estate") or "").strip()
+    message = (data.get("message") or "").strip()
+    source = (data.get("source") or "website").strip()
+
+    if not name or not phone:
+        return jsonify({"ok": False, "error": "Name and phone are required."}), 400
+
+    created_at = datetime.now(timezone.utc)
+
+    lead = PublicLead(
+        kind="coverage",
+        name=name,
+        phone=phone,
+        estate=estate or None,
+        message=message or None,
+        source=source,
+        created_at=created_at,
+        handled=False,
+    )
+
+    db.session.add(lead)
+    db.session.commit()
+
+    # Best-effort notify (notify.py never raises to caller)
+    notify_admin_new_lead({
+        "kind": lead.kind,
+        "name": lead.name,
+        "phone": lead.phone,
+        "estate": lead.estate,
+        "message": lead.message,
+        "source": lead.source,
+        "id": lead.id,
+        "created_at": lead.created_at.isoformat(),
+    })
+
+    return jsonify({"ok": True, "id": lead.id})
+
+
+@main.post("/api/public/leads/quote")
+def public_lead_quote():
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    estate = (data.get("estate") or "").strip()
+    message = (data.get("message") or "").strip()
+    source = (data.get("source") or "website").strip()
+
+    if not name or not phone:
+        return jsonify({"ok": False, "error": "Name and phone are required."}), 400
+
+    created_at = datetime.now(timezone.utc)
+
+    lead = PublicLead(
+        kind="quote",
+        name=name,
+        phone=phone,
+        estate=estate or None,
+        message=message or None,
+        source=source,
+        created_at=created_at,
+        handled=False,
+    )
+
+    db.session.add(lead)
+    db.session.commit()
+
+    notify_admin_new_lead({
+        "kind": lead.kind,
+        "name": lead.name,
+        "phone": lead.phone,
+        "estate": lead.estate,
+        "message": lead.message,
+        "source": lead.source,
+        "id": lead.id,
+        "created_at": lead.created_at.isoformat(),
+    })
+
+    return jsonify({"ok": True, "id": lead.id})
+
+@main.get("/api/public/leads/recent")
+def public_leads_recent():
+    rows = db.session.execute(db.text("""
+        select id, kind, name, phone, estate, source, created_at
+        from public_leads
+        order by id desc
+        limit 20
+    """)).mappings().all()
+    return jsonify({"ok": True, "items": [dict(r) for r in rows]})

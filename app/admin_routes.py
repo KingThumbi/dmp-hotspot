@@ -92,3 +92,51 @@ def transactions():
         query = query.filter(Transaction.status == status)
     rows = query.order_by(Transaction.id.desc()).limit(200).all()
     return render_template("admin/transactions.html", rows=rows, status=status)
+
+@admin.get("/public-leads")
+@login_required
+def public_leads_list():
+    """
+    Admin view: list public leads coming from the marketing website forms.
+    Supports filters:
+      - ?kind=coverage|quote
+      - ?q=search (name/phone/estate)
+    """
+    kind = (request.args.get("kind") or "").strip().lower()
+    q = (request.args.get("q") or "").strip()
+    limit = 200
+
+    where = []
+    params = {"limit": limit}
+
+    if kind in {"coverage", "quote"}:
+        where.append("kind = :kind")
+        params["kind"] = kind
+
+    if q:
+        where.append(
+            "(name ILIKE :q OR phone ILIKE :q OR estate ILIKE :q OR coalesce(message,'') ILIKE :q)"
+        )
+        params["q"] = f"%{q}%"
+
+    where_sql = (" where " + " and ".join(where)) if where else ""
+
+    rows = db.session.execute(
+        db.text(
+            f"""
+            select id, kind, name, phone, estate, message, source, created_at
+            from public_leads
+            {where_sql}
+            order by id desc
+            limit :limit
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    return render_template(
+        "admin/public_leads.html",
+        items=[dict(r) for r in rows],
+        kind=kind,
+        q=q,
+    )

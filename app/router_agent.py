@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from routeros_api import RouterOsApiPool
 from routeros_api.exceptions import RouterOsApiCommunicationError
 
 
+# =========================================================
+# Result container
+# =========================================================
 @dataclass
 class RouterResult:
     ok: bool
@@ -16,15 +19,27 @@ class RouterResult:
     meta: dict[str, Any] | None = None
 
 
+# =========================================================
+# Config helpers
+# =========================================================
 def _is_enabled(app) -> bool:
     return bool(app.config.get("ROUTER_AGENT_ENABLED", False))
 
 
-def _pppoe_pool(app) -> RouterOsApiPool:
-    host = app.config["MIKROTIK_PPPOE_HOST"]
-    port = int(app.config.get("MIKROTIK_PPPOE_PORT", 8728))
-    user = app.config["MIKROTIK_PPPOE_USER"]
-    password = app.config["MIKROTIK_PPPOE_PASS"]
+def _pppoe_pool(app) -> Optional[RouterOsApiPool]:
+    """
+    Build a RouterOS API pool for PPPoE actions.
+
+    Returns None if required config is missing. This makes the router agent
+    fail-safe (skip) instead of crashing with KeyError in production.
+    """
+    host = (app.config.get("MIKROTIK_PPPOE_HOST") or "").strip()
+    user = (app.config.get("MIKROTIK_PPPOE_USER") or "").strip()
+    password = (app.config.get("MIKROTIK_PPPOE_PASS") or "").strip()
+    port = int(app.config.get("MIKROTIK_PPPOE_PORT", 8728) or 8728)
+
+    if not host or not user or not password:
+        return None
 
     return RouterOsApiPool(
         host,
@@ -33,6 +48,26 @@ def _pppoe_pool(app) -> RouterOsApiPool:
         port=port,
         plaintext_login=True,
     )
+
+
+def _require_agent_and_pool(app) -> tuple[Optional[RouterOsApiPool], Optional[RouterResult]]:
+    """
+    Common gate:
+    - Router agent must be enabled
+    - PPPoE RouterOS config must be present
+    """
+    if not _is_enabled(app):
+        return None, RouterResult(ok=False, skipped=True, message="Router agent disabled (ROUTER_AGENT_ENABLED=false)")
+
+    pool = _pppoe_pool(app)
+    if pool is None:
+        return None, RouterResult(
+            ok=False,
+            skipped=True,
+            message="Missing PPPoE router config (MIKROTIK_PPPOE_HOST/MIKROTIK_PPPOE_USER/MIKROTIK_PPPOE_PASS)",
+        )
+
+    return pool, None
 
 
 # =========================================================
@@ -53,23 +88,31 @@ def pppoe_secret_ensure(
 ) -> RouterResult:
     """
     Ensure PPPoE secret exists and has correct profile/password/comment.
-    - If password is None/empty: we do NOT modify password (safer).
-    """
-    if not _is_enabled(app):
-        return RouterResult(ok=False, skipped=True, message="Router agent disabled (ROUTER_AGENT_ENABLED=false)")
 
-    pool = _pppoe_pool(app)
+    Safety rules:
+    - If password is None/empty: do NOT change password.
+    - If comment is None: do NOT change comment.
+    """
+    username = (username or "").strip()
+    profile = (profile or "").strip()
+
+    if not username:
+        return RouterResult(ok=False, message="Missing username")
+    if not profile:
+        return RouterResult(ok=False, message="Missing profile")
+
+    pool, gate = _require_agent_and_pool(app)
+    if gate:
+        return gate
+
+    assert pool is not None
     try:
         api = pool.get_api()
         secrets = api.get_resource("/ppp/secret")
 
         row = pppoe_secret_get(api, username)
         if not row:
-            payload: dict[str, Any] = {
-                "name": username,
-                "service": "pppoe",
-                "profile": profile,
-            }
+            payload: dict[str, Any] = {"name": username, "service": "pppoe", "profile": profile}
             if password:
                 payload["password"] = password
             if comment:
@@ -78,7 +121,10 @@ def pppoe_secret_ensure(
             secrets.add(**payload)
             return RouterResult(ok=True, message="PPPoE secret created", meta={"username": username, "profile": profile})
 
-        secret_id = row[".id"]
+        secret_id = row.get(".id")
+        if not secret_id:
+            return RouterResult(ok=False, message="Router returned secret without .id", meta={"username": username})
+
         updates: dict[str, Any] = {}
 
         if row.get("profile") != profile:
@@ -88,7 +134,7 @@ def pppoe_secret_ensure(
         if password:
             updates["password"] = password
 
-        # If comment is provided (even empty string), set it
+        # Only change comment if explicitly provided (even empty string)
         if comment is not None and row.get("comment") != comment:
             updates["comment"] = comment
 
@@ -111,12 +157,17 @@ def pppoe_secret_ensure(
 
 def pppoe_set_disabled(app, username: str, disabled: bool) -> RouterResult:
     """
-    Enable/disable PPPoE secret.
+    Enable/disable PPPoE secret (disabled=yes/no).
     """
-    if not _is_enabled(app):
-        return RouterResult(ok=False, skipped=True, message="Router agent disabled (ROUTER_AGENT_ENABLED=false)")
+    username = (username or "").strip()
+    if not username:
+        return RouterResult(ok=False, message="Missing username")
 
-    pool = _pppoe_pool(app)
+    pool, gate = _require_agent_and_pool(app)
+    if gate:
+        return gate
+
+    assert pool is not None
     try:
         api = pool.get_api()
         secrets = api.get_resource("/ppp/secret")
@@ -125,7 +176,10 @@ def pppoe_set_disabled(app, username: str, disabled: bool) -> RouterResult:
         if not row:
             return RouterResult(ok=False, message="PPPoE secret not found", meta={"username": username})
 
-        secret_id = row[".id"]
+        secret_id = row.get(".id")
+        if not secret_id:
+            return RouterResult(ok=False, message="Router returned secret without .id", meta={"username": username})
+
         current_disabled = (row.get("disabled") == "true")
         if current_disabled == disabled:
             return RouterResult(ok=True, message="No change", meta={"username": username, "disabled": disabled})
@@ -146,13 +200,18 @@ def pppoe_set_disabled(app, username: str, disabled: bool) -> RouterResult:
 
 def pppoe_kick_active_sessions(app, username: str) -> RouterResult:
     """
-    Disconnect active PPPoE sessions for a user.
+    Disconnect active PPPoE sessions for a user (/ppp/active remove).
     Useful after disabling so the user drops immediately.
     """
-    if not _is_enabled(app):
-        return RouterResult(ok=False, skipped=True, message="Router agent disabled (ROUTER_AGENT_ENABLED=false)")
+    username = (username or "").strip()
+    if not username:
+        return RouterResult(ok=False, message="Missing username")
 
-    pool = _pppoe_pool(app)
+    pool, gate = _require_agent_and_pool(app)
+    if gate:
+        return gate
+
+    assert pool is not None
     try:
         api = pool.get_api()
         active = api.get_resource("/ppp/active")
@@ -160,8 +219,10 @@ def pppoe_kick_active_sessions(app, username: str) -> RouterResult:
 
         removed = 0
         for r in rows:
-            active.remove(id=r[".id"])
-            removed += 1
+            rid = r.get(".id")
+            if rid:
+                active.remove(id=rid)
+                removed += 1
 
         return RouterResult(ok=True, message="Active sessions removed", meta={"username": username, "removed": removed})
 
@@ -177,7 +238,7 @@ def pppoe_kick_active_sessions(app, username: str) -> RouterResult:
 
 
 # =========================================================
-# Unified hook used by admin.py
+# Unified hook used by admin.py (backwards-compatible)
 # =========================================================
 def agent_enable(app, username: str, profile: str, minutes: int, comment: str = "") -> dict:
     """

@@ -2336,7 +2336,7 @@ def users_new_get():
     return render_template("admin/users_new.html")
 
 
-@admin.route("/admin/users/new", methods=["POST"])
+@admin.route("/users/new", methods=["POST"])
 @login_required
 @roles_required("admin")
 def users_new_post():
@@ -2401,4 +2401,89 @@ def users_toggle(user_id: int):
         flash("Failed to update user.", "error")
 
     return redirect(url_for("admin.users_list"))
+
+@admin.get("/public-leads")
+@login_required
+def public_leads_list():
+    kind = (request.args.get("kind") or "").strip().lower()
+    q = (request.args.get("q") or "").strip()
+    status = (request.args.get("status") or "").strip().lower()  # "", "open", "handled"
+    limit = 200
+
+    where = []
+    params = {"limit": limit}
+
+    if kind in {"coverage", "quote"}:
+        where.append("kind = :kind")
+        params["kind"] = kind
+
+    if status in {"open", "handled"}:
+        where.append("handled = :handled")
+        params["handled"] = (status == "handled")
+
+    if q:
+        where.append(
+            "(name ILIKE :q OR phone ILIKE :q OR estate ILIKE :q OR coalesce(message,'') ILIKE :q)"
+        )
+        params["q"] = f"%{q}%"
+
+    where_sql = (" where " + " and ".join(where)) if where else ""
+
+    rows = db.session.execute(
+        db.text(
+            f"""
+            select id, kind, name, phone, estate, message, source, created_at,
+                   handled, handled_at, handled_by
+            from public_leads
+            {where_sql}
+            order by id desc
+            limit :limit
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    return render_template(
+        "admin/public_leads.html",
+        items=[dict(r) for r in rows],
+        kind=kind,
+        q=q,
+        status=status,
+    )
+
+@admin.post("/public-leads/<int:lead_id>/handle")
+@login_required
+@roles_required("admin")
+def public_lead_handle(lead_id: int):
+    db.session.execute(
+        db.text("""
+            update public_leads
+               set handled = true,
+                   handled_at = now(),
+                   handled_by = :by
+             where id = :id
+        """),
+        {"id": lead_id, "by": (getattr(current_user, "email", None) or getattr(current_user, "name", None) or "admin")}
+    )
+    db.session.commit()
+    flash("Lead marked as handled.", "success")
+    return redirect(url_for("admin.public_leads_list"))
+
+@admin.post("/public-leads/<int:lead_id>/unhandle")
+@login_required
+@roles_required("admin")
+def public_lead_unhandle(lead_id: int):
+    db.session.execute(
+        db.text("""
+            update public_leads
+               set handled = false,
+                   handled_at = null,
+                   handled_by = null
+             where id = :id
+        """),
+        {"id": lead_id}
+    )
+    db.session.commit()
+    flash("Lead marked as unhandled.", "success")
+    return redirect(url_for("admin.public_leads_list"))
 

@@ -7,11 +7,15 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from flask import Flask, current_app as flask_current_app
+from flask import Flask, current_app as flask_current_app, request
+from flask_cors import CORS
 
 from .logging import setup_logging
 
 
+# -----------------------------
+# Env helpers
+# -----------------------------
 def _load_env() -> None:
     """
     Load .env for LOCAL DEV only, without overriding real environment variables.
@@ -28,12 +32,29 @@ def _load_env() -> None:
         load_dotenv(dotenv_path=env_path, override=False)
 
 
-def _env_flag(name: str, default: bool = True) -> bool:
-    """Parse env bools like true/false/1/0/yes/no/on/off."""
+def _env_flag(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    try:
+        return int(raw) if raw is not None else default
+    except Exception:
+        return default
+
+
+def _cors_allowed_origins() -> list[str]:
+    # Keep explicit list to avoid accidental wildcard in prod.
+    return [
+        "http://localhost:5173",
+        "https://dmpolinconnect.co.ke",
+        "https://www.dmpolinconnect.co.ke",
+        # Add your frontend hosting URL later (Render/Vercel/CF Pages/etc.)
+    ]
 
 
 def create_app() -> Flask:
@@ -54,23 +75,33 @@ def create_app() -> Flask:
     app.config.from_object(Config)
 
     # ---------------------------------------------------------
-    # 4) Scheduler settings (safe defaults)
+    # 4) CORS (Public website → backend API)
+    # Only allows cross-origin calls to /api/*
+    # ---------------------------------------------------------
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": _cors_allowed_origins()}},
+        supports_credentials=False,
+        max_age=600,
+    )
+
+    # ---------------------------------------------------------
+    # 5) Feature toggles & intervals (safe defaults)
     # ---------------------------------------------------------
     app.config["SCHEDULER_ENABLED"] = _env_flag("SCHEDULER_ENABLED", False)
     app.config["SCHEDULER_DRY_RUN"] = _env_flag("SCHEDULER_DRY_RUN", True)
-    app.config["SCHEDULER_INTERVAL_MINUTES"] = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "2"))
+    app.config["SCHEDULER_INTERVAL_MINUTES"] = _env_int("SCHEDULER_INTERVAL_MINUTES", 2)
 
-    # Reconciliation toggles (safe defaults)
     app.config["RECONCILE_ENABLED"] = _env_flag("RECONCILE_ENABLED", False)
-    app.config["RECONCILE_INTERVAL_MINUTES"] = int(os.getenv("RECONCILE_INTERVAL_MINUTES", "3"))
+    app.config["RECONCILE_INTERVAL_MINUTES"] = _env_int("RECONCILE_INTERVAL_MINUTES", 3)
 
     # ---------------------------------------------------------
-    # 5) Logging
+    # 6) Logging
     # ---------------------------------------------------------
     setup_logging(debug=bool(app.config.get("DEBUG", False)))
 
     # ---------------------------------------------------------
-    # 6) Extensions
+    # 7) Extensions
     # ---------------------------------------------------------
     from .extensions import db, limiter, login_manager, migrate
 
@@ -80,7 +111,7 @@ def create_app() -> Flask:
     login_manager.init_app(app)
 
     # ---------------------------------------------------------
-    # 7) Blueprints
+    # 8) Blueprints
     # ---------------------------------------------------------
     from .admin import admin as admin_bp
     from .routes import main as main_bp
@@ -91,60 +122,46 @@ def create_app() -> Flask:
     app.register_blueprint(mpesa_bp)  # /api/mpesa/*
 
     # ---------------------------------------------------------
-    # 7.5) Register CLI module commands (router/audit/resync/etc.)
+    # 9) Register CLI module commands (router/audit/resync/etc.)
     # ---------------------------------------------------------
     try:
         from . import cli as cli_module
+
         if hasattr(cli_module, "init_app"):
             cli_module.init_app(app)
     except Exception:
-        # Don't crash app startup due to CLI wiring; log it.
         app.logger.exception("CLI init failed")
 
     # ---------------------------------------------------------
-    # 8) Context processor
+    # 10) Context processor
     # ---------------------------------------------------------
     @app.context_processor
     def inject_current_app():
         return {"current_app": flask_current_app}
 
     # ---------------------------------------------------------
-    # 9) Health check
+    # 11) Health check
     # ---------------------------------------------------------
     @app.get("/_ping")
     def ping():
         return {"service": "dmp-hotspot", "status": "running"}
 
+    # ---------------------------------------------------------
+    # 12) Optional central exemption hook
+    # (keep this ONLY if you have global redirects/auth guards elsewhere)
+    # ---------------------------------------------------------
+    @app.before_request
+    def _router_api_exemptions():
+        if request.path.startswith("/api/router/"):
+            return None
+        return None
+
     # =========================================================
-    # 10) APScheduler — expiry + reconciliation (safe gating)
+    # 13) APScheduler — expiry + reconciliation
     # =========================================================
     scheduler = BackgroundScheduler(timezone="UTC")
 
-    def _should_start_scheduler() -> bool:
-        """
-        Start scheduler only when:
-        - Enabled (SCHEDULER_ENABLED=true)
-        - NOT running via Flask CLI commands (db upgrade/migrate/shell/etc.)
-        - NOT the debug reloader parent process
-        """
-        if not app.config.get("SCHEDULER_ENABLED", False):
-            return False
-
-        # Avoid starting scheduler during CLI commands (Render often does `flask db upgrade`)
-        if _env_flag("FLASK_RUN_FROM_CLI", False):
-            return False
-
-        # In debug mode, only start scheduler in the reloader child process
-        if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-            return False
-
-        return True
-
     def _register_jobs() -> None:
-        """
-        Register all scheduled jobs (expiry + reconciliation).
-        Uses max_instances=1 and coalesce=True for safety.
-        """
         from .scheduler import (
             enforce_all_expiry,
             reconcile_pending_mpesa,
@@ -197,12 +214,22 @@ def create_app() -> Flask:
         else:
             app.logger.info("Reconciliation disabled (RECONCILE_ENABLED=false).")
 
-    def start_scheduler() -> None:
+    def _should_start_scheduler() -> bool:
+        # Primary gate
+        if not app.config.get("SCHEDULER_ENABLED", False):
+            return False
+
+        # Avoid double-start in debug reloader
+        if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+            return False
+
+        return True
+
+    def _start_scheduler_once() -> None:
         if not _should_start_scheduler():
             app.logger.info(
-                "Scheduler NOT started (SCHEDULER_ENABLED=%s, FLASK_RUN_FROM_CLI=%s, debug=%s, WERKZEUG_RUN_MAIN=%s).",
+                "Scheduler NOT started (SCHEDULER_ENABLED=%s, debug=%s, WERKZEUG_RUN_MAIN=%s).",
                 app.config.get("SCHEDULER_ENABLED", False),
-                os.getenv("FLASK_RUN_FROM_CLI", ""),
                 app.debug,
                 os.getenv("WERKZEUG_RUN_MAIN", ""),
             )
@@ -221,13 +248,17 @@ def create_app() -> Flask:
             bool(app.config.get("SCHEDULER_DRY_RUN", True)),
         )
 
-    # Start scheduler once at app startup
-    start_scheduler()
+    # Start scheduler at app startup (Flask 2/3 compatible)
+    try:
+        _start_scheduler_once()
+    except Exception:
+        app.logger.exception("Scheduler start failed")
 
     # ---------------------------------------------------------
-    # 11) Existing CLI Commands you already had
+    # 14) CLI commands you already had
     # ---------------------------------------------------------
     from .cli import ping_cli, sub_disconnect_last, sub_reconnect_last
+
     app.cli.add_command(ping_cli)
     app.cli.add_command(sub_disconnect_last)
     app.cli.add_command(sub_reconnect_last)

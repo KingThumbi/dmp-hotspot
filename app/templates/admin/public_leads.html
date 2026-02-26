@@ -1,0 +1,228 @@
+{# app/templates/admin/public_leads.html #}
+{% extends "admin/base.html" %}
+
+{% block title %}Public Leads{% endblock %}
+{% block header %}Public Leads{% endblock %}
+
+{% block page_subtitle %}
+  <p>Requests from the public website (coverage + quotes). Mark items as handled once completed.</p>
+{% endblock %}
+
+{% block content %}
+
+  <style>
+    .filters{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:end;
+      margin-bottom: 12px;
+    }
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width: 160px;
+    }
+    .field label{
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--muted);
+    }
+    .input, .select{
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 800;
+      outline: none;
+      background:#fff;
+    }
+    .input:focus, .select:focus{
+      border-color: rgba(0,0,128,0.25);
+      box-shadow: 0 0 0 4px rgba(0,0,128,0.06);
+    }
+
+    .tablewrap{
+      overflow:auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background:#fff;
+    }
+    table{
+      width:100%;
+      border-collapse: collapse;
+      min-width: 980px;
+    }
+    th, td{
+      padding: 12px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      font-size: 13px;
+    }
+    th{
+      text-align:left;
+      font-size: 12px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 950;
+      background: rgba(0,0,128,0.03);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .pill2{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 950;
+      border: 1px solid var(--border);
+      background:#fff;
+      white-space:nowrap;
+    }
+    .pill-kind{
+      border-color: rgba(0,0,128,0.18);
+      background: rgba(0,0,128,0.06);
+      color: var(--navy);
+    }
+    .pill-open{
+      border-color: rgba(245,158,11,0.35);
+      background: rgba(245,158,11,0.12);
+      color: #7a4a00;
+    }
+    .pill-handled{
+      border-color: rgba(16,185,129,0.35);
+      background: rgba(16,185,129,0.12);
+      color: #065f46;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .msg{
+      max-width: 520px;
+      white-space: pre-wrap;
+      color: rgba(16,24,40,0.86);
+    }
+
+    .row-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+  </style>
+
+  <form method="get" class="filters">
+    <div class="field" style="min-width:180px;">
+      <label>Type</label>
+      <select class="select" name="kind">
+        <option value="" {{ "" == kind and "selected" or "" }}>All</option>
+        <option value="coverage" {{ "coverage" == kind and "selected" or "" }}>Coverage</option>
+        <option value="quote" {{ "quote" == kind and "selected" or "" }}>Quote</option>
+      </select>
+    </div>
+
+    <div class="field" style="min-width:180px;">
+      <label>Status</label>
+      <select class="select" name="status">
+        <option value="" {{ "" == status and "selected" or "" }}>All</option>
+        <option value="open" {{ "open" == status and "selected" or "" }}>Open</option>
+        <option value="handled" {{ "handled" == status and "selected" or "" }}>Handled</option>
+      </select>
+    </div>
+
+    <div class="field" style="flex:1; min-width:220px;">
+      <label>Search</label>
+      <input class="input" type="text" name="q" value="{{ q or '' }}" placeholder="Name, phone, estate, message..." />
+    </div>
+
+    <div class="field" style="min-width:160px;">
+      <label>&nbsp;</label>
+      <div class="row-actions">
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn" href="{{ url_for('admin.public_leads_list') }}">Reset</a>
+      </div>
+    </div>
+  </form>
+
+  {% if not items %}
+    <div class="muted" style="padding:12px 2px;">No leads found.</div>
+  {% else %}
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Customer</th>
+            <th>Estate</th>
+            <th>Message</th>
+            <th>Source</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for r in items %}
+            <tr>
+              <td class="mono">#{{ r.id }}</td>
+
+              <td>
+                <span class="pill2 pill-kind">{{ r.kind }}</span>
+              </td>
+
+              <td>
+                {% if r.handled %}
+                  <span class="pill2 pill-handled">handled</span>
+                  <div class="muted" style="font-size:11px; margin-top:6px;">
+                    {{ r.handled_by or '' }}
+                    {% if r.handled_at %} · {{ r.handled_at }}{% endif %}
+                  </div>
+                {% else %}
+                  <span class="pill2 pill-open">open</span>
+                {% endif %}
+              </td>
+
+              <td>
+                <div style="font-weight:950;">{{ r.name }}</div>
+                <div class="muted mono" style="margin-top:4px;">{{ r.phone }}</div>
+              </td>
+
+              <td>{{ r.estate or "-" }}</td>
+
+              <td class="msg">{{ r.message or "-" }}</td>
+
+              <td class="mono">{{ r.source or "-" }}</td>
+
+              <td class="mono">{{ r.created_at }}</td>
+
+              <td>
+                <div class="row-actions">
+                  {% if r.handled %}
+                    <form method="post" action="{{ url_for('admin.public_lead_unhandle', lead_id=r.id) }}">
+                      <button class="btn" type="submit">Undo</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{{ url_for('admin.public_lead_handle', lead_id=r.id) }}">
+                      <button class="btn btn-primary" type="submit">Mark handled</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+{% endblock %}

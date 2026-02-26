@@ -1,7 +1,7 @@
 # app/models.py
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import sqlalchemy as sa
@@ -1023,3 +1023,21 @@ class HotspotEntitlement(db.Model):
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="active")  # active|expired|revoked
     created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
+
+class PublicLead(db.Model):
+    __tablename__ = "public_leads"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    kind = db.Column(db.String(30), nullable=False)  # coverage, quote
+    name = db.Column(db.String(120), nullable=False)
+    phone = db.Column(db.String(30), nullable=False)
+    estate = db.Column(db.String(120), nullable=True)
+    message = db.Column(db.Text, nullable=True)
+    source = db.Column(db.String(60), nullable=True)
+
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )

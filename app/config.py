@@ -119,3 +119,6 @@ class Config:
     # =========================================================
     PORTAL_BASE_URL = os.getenv("PORTAL_BASE_URL", "").rstrip("/")
     API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
+
+    ROUTER_AGENT_TOKEN = os.getenv("ROUTER_AGENT_TOKEN", "")
+
