@@ -10,6 +10,7 @@ from flask.cli import with_appcontext
 
 from app.models import Subscription
 from app.services.router_actions import disconnect_subscription, reconnect_subscription
+from app.services.pppoe_expiry import sweep_expired_accounts
 
 
 # ======================================================
@@ -42,6 +43,17 @@ def sub_reconnect_last():
         click.echo("No subscriptions found.")
         return
     result = reconnect_subscription(sub, dry_run=True)
+    click.echo(str(result))
+
+
+@click.command("sweep-expired-pppoe")
+@with_appcontext
+def sweep_expired_pppoe_command():
+    """
+    Find expired active PPPoE-linked accounts in DB, mark them expired,
+    and disable/disconnect them on MikroTik through the relay.
+    """
+    result = sweep_expired_accounts()
     click.echo(str(result))
 
 
@@ -201,6 +213,7 @@ def init_app(app):
     app.cli.add_command(ping_cli)
     app.cli.add_command(sub_disconnect_last)
     app.cli.add_command(sub_reconnect_last)
+    app.cli.add_command(sweep_expired_pppoe_command)
 
     # router group
     app.cli.add_command(router)

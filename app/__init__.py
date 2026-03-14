@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from flask import Flask, current_app as flask_current_app, request
 from flask_cors import CORS
 
+#from app.cli.pppoe_jobs import sweep_expired_pppoe_command
 from .logging import setup_logging
 
 
@@ -131,6 +132,9 @@ def create_app() -> Flask:
             cli_module.init_app(app)
     except Exception:
         app.logger.exception("CLI init failed")
+
+    # Explicit PPPoE expiry sweep CLI command
+    #app.cli.add_command(sweep_expired_pppoe_command)
 
     # ---------------------------------------------------------
     # 10) Context processor
