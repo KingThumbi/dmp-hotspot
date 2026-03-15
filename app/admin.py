@@ -925,7 +925,8 @@ def customer_manual_payment(customer_id: int) -> Response:
     amount_raw = (request.form.get("amount") or "").strip()
     paid_at_raw = (request.form.get("paid_at") or "").strip()
     receipt_raw = (request.form.get("receipt") or "").strip()
-    receipt = receipt_raw.upper() if receipt_raw else None    note = (request.form.get("note") or "").strip() or None
+    receipt = receipt_raw.upper() if receipt_raw else None    
+    note = (request.form.get("note") or "").strip() or None
     expires_override_raw = (request.form.get("expires_at_override") or "").strip()
 
     if not subscription_id:
