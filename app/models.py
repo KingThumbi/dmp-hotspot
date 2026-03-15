@@ -1008,11 +1008,22 @@ class MpesaPayment(db.Model):
     status = db.Column(db.String(20), nullable=False, default="pending")
     paid_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    result_code = db.Column(db.Integer, nullable=True)
+    result_desc = db.Column(db.Text, nullable=True)
+
     raw_callback = db.Column(db.JSON, nullable=True)
+
+    external_updated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    reconcile_attempts = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    last_reconcile_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    activation_attempts = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    last_activation_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    activation_error = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime(timezone=True), server_default=db.text("now()"), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), server_default=db.text("now()"), nullable=False)
-
 
 class HotspotEntitlement(db.Model):
     __tablename__ = "hotspot_entitlements"
