@@ -924,8 +924,8 @@ def customer_manual_payment(customer_id: int) -> Response:
     subscription_id = request.form.get("subscription_id", type=int)
     amount_raw = (request.form.get("amount") or "").strip()
     paid_at_raw = (request.form.get("paid_at") or "").strip()
-    receipt = (request.form.get("receipt") or "").strip() or None
-    note = (request.form.get("note") or "").strip() or None
+    receipt_raw = (request.form.get("receipt") or "").strip()
+    receipt = receipt_raw.upper() if receipt_raw else None    note = (request.form.get("note") or "").strip() or None
     expires_override_raw = (request.form.get("expires_at_override") or "").strip()
 
     if not subscription_id:
@@ -965,6 +965,24 @@ def customer_manual_payment(customer_id: int) -> Response:
 
         if expires_override_utc_naive <= paid_at_utc_naive:
             flash("Expiry override must be AFTER the paid date/time.", "error")
+            return detail_redirect
+
+    # -----------------------------
+    # Validate unique receipt
+    # -----------------------------
+    if receipt:
+        existing_tx = (
+            Transaction.query
+            .filter(Transaction.mpesa_receipt == receipt)
+            .order_by(Transaction.id.asc())
+            .first()
+        )
+        if existing_tx:
+            flash(
+                f"Receipt {receipt} is already used by transaction #{existing_tx.id}. "
+                "Duplicate receipts are not allowed.",
+                "error",
+            )
             return detail_redirect
 
     # -----------------------------

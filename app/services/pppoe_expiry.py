@@ -4,16 +4,11 @@ from datetime import datetime
 
 from app.extensions import db
 from app.models import Subscription
-from app.services.mikrotik_relay import disable_pppoe, enable_pppoe
+from app.services.router_actions import disconnect_subscription, reconnect_subscription
 
 
 def utc_now_naive():
-    # Project stores UTC naive datetimes
     return datetime.utcnow()
-
-
-def get_pppoe_username(sub: Subscription) -> str | None:
-    return (getattr(sub, "pppoe_username", None) or "").strip() or None
 
 
 def sweep_expired_accounts() -> dict:
@@ -35,39 +30,49 @@ def sweep_expired_accounts() -> dict:
     errors = []
 
     for sub in expired_subs:
-        username = get_pppoe_username(sub)
+        username = (sub.pppoe_username or "").strip() or None
 
-        relay_result = None
-        relay_ok = False
-
-        if username:
-            try:
-                relay_result = disable_pppoe(username, disconnect=True)
-                relay_ok = True
-            except Exception as e:
-                errors.append(
-                    {
-                        "subscription_id": sub.id,
-                        "username": username,
-                        "error": str(e),
-                    }
-                )
-
-        if relay_ok:
+        try:
             sub.status = "expired"
+            db.session.add(sub)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            errors.append(
+                {
+                    "subscription_id": sub.id,
+                    "username": username,
+                    "error": f"db_commit_failed: {e}",
+                }
+            )
+            continue
 
-        processed.append(
-            {
-                "subscription_id": sub.id,
-                "username": username,
-                "relay": relay_result,
-            }
-        )
+        try:
+            action_result = disconnect_subscription(
+                sub,
+                reason="expired",
+                dry_run=False,
+            )
 
-    db.session.commit()
+            processed.append(
+                {
+                    "subscription_id": sub.id,
+                    "username": username,
+                    "result": action_result,
+                }
+            )
+
+        except Exception as e:
+            errors.append(
+                {
+                    "subscription_id": sub.id,
+                    "username": username,
+                    "error": str(e),
+                }
+            )
 
     return {
-        "ok": True,
+        "ok": len(errors) == 0,
         "count": len(processed),
         "processed": processed,
         "errors": errors,
@@ -75,13 +80,9 @@ def sweep_expired_accounts() -> dict:
 
 
 def reactivate_subscription_after_payment(sub: Subscription) -> dict:
-    username = get_pppoe_username(sub)
-    if not username:
-        return {"ok": False, "error": "No PPPoE username found"}
-
-    relay_result = enable_pppoe(username, disconnect=False)
-
-    sub.status = "active"
-    db.session.commit()
-
-    return {"ok": True, "relay": relay_result}
+    result = reconnect_subscription(
+        sub,
+        reason="payment_received",
+        dry_run=False,
+    )
+    return {"ok": bool(result.get("ok", False)), "result": result}

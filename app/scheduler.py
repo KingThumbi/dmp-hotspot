@@ -8,7 +8,6 @@ from typing import List, Tuple
 from app.services.pppoe_reconcile import reconcile_subscription_router_state
 from .extensions import db
 from .models import MpesaPayment, Subscription
-from .router_agent import pppoe_kick_active_sessions, pppoe_set_disabled
 from .services.mikrotik_hotspot import disable_hotspot_user, kick_hotspot_active
 from .services.mpesa_daraja import load_mpesa_config as load_mpesa_cfg_daraja, stk_query as daraja_stk_query
 
@@ -57,11 +56,11 @@ def _okish(res) -> bool:
 def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
     """
     PPPoE expiry enforcement (DB is source of truth).
+    Marks expired subscriptions in DB, then best-effort disables them through
+    the shared router action path.
     """
     with app.app_context():
         now = _utcnow_naive()
-
-        limit_n = int(app.config.get("EXPIRY_ENFORCE_LIMIT", 50))
 
         expired = (
             Subscription.query
@@ -72,63 +71,82 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
                 Subscription.expires_at <= now,
                 Subscription.pppoe_username.isnot(None),
             )
+            .order_by(Subscription.id.asc())
             .all()
         )
 
         if not expired:
-            pppoe_log.info("PPPoE expiry check: none expired (now_utc=%s, dry_run=%s)", now.isoformat(), dry_run)
+            pppoe_log.info(
+                "PPPoE expiry check: none expired (now_utc=%s, dry_run=%s)",
+                now.isoformat(),
+                dry_run,
+            )
             return
 
-        router_enabled = bool(app.config.get("ROUTER_AGENT_ENABLED", False))
-
-        to_enforce: List[Tuple[int, str]] = []
         for sub in expired:
             user = (sub.pppoe_username or "").strip()
+
             pppoe_log.warning(
-                "PPPoE expiry detected | sub_id=%s user=%s expires_at=%s dry_run=%s router_enabled=%s",
-                sub.id, user or "-", sub.expires_at, dry_run, router_enabled
+                "PPPoE expiry detected | sub_id=%s user=%s expires_at=%s dry_run=%s",
+                sub.id,
+                user or "-",
+                sub.expires_at,
+                dry_run,
             )
 
             if dry_run:
                 continue
 
-            sub.status = "expired"
-            db.session.add(sub)
-
-            if user:
-                to_enforce.append((sub.id, user))
-
-        if not dry_run:
             try:
+                sub.status = "expired"
+                db.session.add(sub)
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-                pppoe_log.exception("DB commit failed while expiring PPPoE subscriptions")
-                return
+                pppoe_log.exception(
+                    "DB commit failed while marking PPPoE subscription expired | sub_id=%s user=%s",
+                    sub.id,
+                    user,
+                )
+                continue
 
-        if dry_run or not router_enabled:
-            return
-
-        for sub_id, user in to_enforce:
             try:
-                res1 = pppoe_set_disabled(app, user, disabled=True)
-                res2 = pppoe_kick_active_sessions(app, user)
+                result = disconnect_subscription(
+                    sub,
+                    reason="expired",
+                    dry_run=False,
+                )
 
-                if not _okish(res1) or not _okish(res2):
-                    pppoe_log.error("PPPoE router enforcement non-ok | sub_id=%s user=%s res1=%s res2=%s",
-                                    sub_id, user, res1, res2)
+                if not _okish(result):
+                    pppoe_log.error(
+                        "PPPoE expiry enforcement non-ok | sub_id=%s user=%s result=%s",
+                        sub.id,
+                        user,
+                        result,
+                    )
+                else:
+                    pppoe_log.info(
+                        "PPPoE expiry enforcement complete | sub_id=%s user=%s result=%s",
+                        sub.id,
+                        user,
+                        result,
+                    )
+
             except Exception:
-                pppoe_log.exception("PPPoE router enforcement exception | sub_id=%s user=%s", sub_id, user)
-
+                pppoe_log.exception(
+                    "PPPoE expiry enforcement exception | sub_id=%s user=%s",
+                    sub.id,
+                    user,
+                )
 
 def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
     """
     Hotspot expiry enforcement (DB is source of truth).
+    Marks expired subscriptions in DB, then best-effort disables them through
+    the shared router action path.
     """
     with app.app_context():
         now = _utcnow_naive()
-
-        limit_n = int(app.config.get("EXPIRY_ENFORCE_LIMIT", 50))
 
         expired = (
             Subscription.query
@@ -139,54 +157,73 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
                 Subscription.expires_at <= now,
                 Subscription.hotspot_username.isnot(None),
             )
+            .order_by(Subscription.id.asc())
             .all()
         )
 
         if not expired:
-            hotspot_log.info("Hotspot expiry check: none expired (now_utc=%s, dry_run=%s)", now.isoformat(), dry_run)
+            hotspot_log.info(
+                "Hotspot expiry check: none expired (now_utc=%s, dry_run=%s)",
+                now.isoformat(),
+                dry_run,
+            )
             return
 
-        router_enabled = bool(app.config.get("ROUTER_AGENT_ENABLED", False))
-
-        to_enforce: List[Tuple[int, str]] = []
         for sub in expired:
             user = (sub.hotspot_username or "").strip()
+
             hotspot_log.warning(
-                "Hotspot expiry detected | sub_id=%s user=%s expires_at=%s dry_run=%s router_enabled=%s",
-                sub.id, user or "-", sub.expires_at, dry_run, router_enabled
+                "Hotspot expiry detected | sub_id=%s user=%s expires_at=%s dry_run=%s",
+                sub.id,
+                user or "-",
+                sub.expires_at,
+                dry_run,
             )
 
             if dry_run:
                 continue
 
-            sub.status = "expired"
-            db.session.add(sub)
-
-            if user:
-                to_enforce.append((sub.id, user))
-
-        if not dry_run:
             try:
+                sub.status = "expired"
+                db.session.add(sub)
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-                hotspot_log.exception("DB commit failed while expiring Hotspot subscriptions")
-                return
+                hotspot_log.exception(
+                    "DB commit failed while marking Hotspot subscription expired | sub_id=%s user=%s",
+                    sub.id,
+                    user,
+                )
+                continue
 
-        if dry_run or not router_enabled:
-            return
-
-        for sub_id, user in to_enforce:
             try:
-                res1 = disable_hotspot_user(app, user)
-                res2 = kick_hotspot_active(app, user)
+                result = disconnect_subscription(
+                    sub,
+                    reason="expired",
+                    dry_run=False,
+                )
 
-                if not _okish(res1) or not _okish(res2):
-                    hotspot_log.error("Hotspot router enforcement non-ok | sub_id=%s user=%s res1=%s res2=%s",
-                                      sub_id, user, res1, res2)
+                if not _okish(result):
+                    hotspot_log.error(
+                        "Hotspot expiry enforcement non-ok | sub_id=%s user=%s result=%s",
+                        sub.id,
+                        user,
+                        result,
+                    )
+                else:
+                    hotspot_log.info(
+                        "Hotspot expiry enforcement complete | sub_id=%s user=%s result=%s",
+                        sub.id,
+                        user,
+                        result,
+                    )
+
             except Exception:
-                hotspot_log.exception("Hotspot router enforcement exception | sub_id=%s user=%s", sub_id, user)
-
+                hotspot_log.exception(
+                    "Hotspot expiry enforcement exception | sub_id=%s user=%s",
+                    sub.id,
+                    user,
+                )
 
 def enforce_all_expiry(app, dry_run: bool = True) -> None:
     """Run both PPPoE + Hotspot enforcement in one call."""
