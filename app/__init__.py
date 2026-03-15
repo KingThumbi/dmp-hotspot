@@ -240,23 +240,36 @@ def create_app() -> Flask:
             app.logger.info("Router reconcile disabled (ROUTER_RECONCILE_ENABLED=false).")
 
     def _should_start_scheduler() -> bool:
-        # Primary gate
+        # Primary feature flag
         if not app.config.get("SCHEDULER_ENABLED", False):
             return False
 
-        # Avoid double-start in debug reloader
+        # Never start scheduler during Flask CLI commands
+        # e.g. flask db upgrade, flask shell, flask routes, etc.
+        if os.getenv("FLASK_RUN_FROM_CLI"):
+            return False
+
+        # Avoid double-start in Werkzeug debug reloader
         if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
             return False
 
-        return True
+        # In production, prefer starting only under Gunicorn worker/web process
+        if os.getenv("SERVER_SOFTWARE", "").lower().startswith("gunicorn"):
+            return True
 
+        # Local non-debug direct runs can still start scheduler if explicitly enabled
+        return not app.debug
     def _start_scheduler_once() -> None:
         if not _should_start_scheduler():
             app.logger.info(
-                "Scheduler NOT started (SCHEDULER_ENABLED=%s, debug=%s, WERKZEUG_RUN_MAIN=%s).",
+                "Scheduler NOT started "
+                "(SCHEDULER_ENABLED=%s, debug=%s, WERKZEUG_RUN_MAIN=%s, "
+                "FLASK_RUN_FROM_CLI=%s, SERVER_SOFTWARE=%s).",
                 app.config.get("SCHEDULER_ENABLED", False),
                 app.debug,
                 os.getenv("WERKZEUG_RUN_MAIN", ""),
+                os.getenv("FLASK_RUN_FROM_CLI", ""),
+                os.getenv("SERVER_SOFTWARE", ""),
             )
             return
 
