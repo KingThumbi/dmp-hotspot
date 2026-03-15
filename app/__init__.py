@@ -96,6 +96,8 @@ def create_app() -> Flask:
     app.config["RECONCILE_ENABLED"] = _env_flag("RECONCILE_ENABLED", False)
     app.config["RECONCILE_INTERVAL_MINUTES"] = _env_int("RECONCILE_INTERVAL_MINUTES", 3)
 
+    app.config["ROUTER_RECONCILE_ENABLED"] = _env_flag("ROUTER_RECONCILE_ENABLED", False)
+    app.config["ROUTER_RECONCILE_INTERVAL_MINUTES"] = _env_int("ROUTER_RECONCILE_INTERVAL_MINUTES", 15)
     # ---------------------------------------------------------
     # 6) Logging
     # ---------------------------------------------------------
@@ -170,6 +172,7 @@ def create_app() -> Flask:
             enforce_all_expiry,
             reconcile_pending_mpesa,
             retry_activation_failed,
+            reconcile_router_state,
         )
 
         expiry_minutes = int(app.config.get("SCHEDULER_INTERVAL_MINUTES", 2))
@@ -218,6 +221,24 @@ def create_app() -> Flask:
         else:
             app.logger.info("Reconciliation disabled (RECONCILE_ENABLED=false).")
 
+        # ---- Router state self-healing reconciliation (optional) ----
+        if app.config.get("ROUTER_RECONCILE_ENABLED", False):
+            router_reconcile_minutes = int(app.config.get("ROUTER_RECONCILE_INTERVAL_MINUTES", 15))
+
+            scheduler.add_job(
+                reconcile_router_state,
+                trigger=IntervalTrigger(minutes=router_reconcile_minutes),
+                kwargs={"app": app, "dry_run": dry_run},
+                id="router_reconcile_state",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=60,
+            )
+            app.logger.info("Scheduler job registered: router_reconcile_state -> reconcile_router_state")
+        else:
+            app.logger.info("Router reconcile disabled (ROUTER_RECONCILE_ENABLED=false).")
+
     def _should_start_scheduler() -> bool:
         # Primary gate
         if not app.config.get("SCHEDULER_ENABLED", False):
@@ -261,10 +282,10 @@ def create_app() -> Flask:
     # ---------------------------------------------------------
     # 14) CLI commands you already had
     # ---------------------------------------------------------
-    from .cli import ping_cli, sub_disconnect_last, sub_reconnect_last
+    #from .cli import ping_cli, sub_disconnect_last, sub_reconnect_last
 
-    app.cli.add_command(ping_cli)
-    app.cli.add_command(sub_disconnect_last)
-    app.cli.add_command(sub_reconnect_last)
+    #app.cli.add_command(ping_cli)
+    #app.cli.add_command(sub_disconnect_last)
+    #app.cli.add_command(sub_reconnect_last)
 
     return app

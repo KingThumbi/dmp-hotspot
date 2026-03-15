@@ -28,6 +28,7 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
+from app.services.router_actions import reconnect_subscription
 
 from .authz import roles_required
 from .extensions import db, limiter, login_manager
@@ -901,21 +902,24 @@ def customer_detail(customer_id: int):
 @admin.post("/customers/<int:customer_id>/payments/manual")
 @roles_required("support", "admin")
 @limiter.limit("30 per minute")
-def customer_manual_payment(customer_id: int):
+def customer_manual_payment(customer_id: int) -> Response:
     """
     Manual payment entry (UI):
-    - Creates Transaction(status=success) so it shows in the existing UI immediately
-    - Extends subscription expiry from the admin-entered paid_at (historical), NOT from "now"
+    - Creates Transaction(status='success') so it appears in the current UI immediately
+    - Extends subscription expiry from the admin-entered paid_at (historical), not from "now"
     - Supports optional admin expiry override (expires_at_override)
     - Updates subscription.last_tx_id
+    - Best-effort reconnects service after successful DB commit
     """
+    detail_redirect = redirect(url_for("admin.customer_detail", customer_id=customer_id))
+
     customer = db.session.get(Customer, customer_id)
     if not customer:
         flash("Customer not found.", "error")
         return redirect(url_for("admin.customers"))
 
     # -----------------------------
-    # Read form inputs
+    # Read and validate inputs
     # -----------------------------
     subscription_id = request.form.get("subscription_id", type=int)
     amount_raw = (request.form.get("amount") or "").strip()
@@ -926,74 +930,67 @@ def customer_manual_payment(customer_id: int):
 
     if not subscription_id:
         flash("Select a subscription.", "error")
-        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+        return detail_redirect
 
-    sub = db.session.get(Subscription, int(subscription_id))
+    sub = db.session.get(Subscription, subscription_id)
     if not sub or sub.customer_id != customer_id:
         flash("Subscription not found for this customer.", "error")
-        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+        return detail_redirect
 
     if not sub.package:
         flash("Subscription package missing.", "error")
-        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+        return detail_redirect
 
-    # -----------------------------
-    # Validate amount
-    # -----------------------------
     try:
         amount_int = int(amount_raw)
         if amount_int <= 0:
-            raise ValueError()
+            raise ValueError
     except Exception:
         flash("Amount must be a positive whole number (e.g. 1000).", "error")
-        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+        return detail_redirect
 
-    # -----------------------------
-    # Parse paid_at: EAT datetime-local -> UTC naive (DB convention)
-    # -----------------------------
     try:
         paid_at_utc_naive = parse_datetime_local_eat_to_utc_naive(paid_at_raw)
     except Exception as e:
         flash(f"Invalid Paid At: {e}", "error")
-        return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+        return detail_redirect
 
-    # -----------------------------
-    # Optional expiry override: EAT datetime-local -> UTC naive
-    # -----------------------------
     expires_override_utc_naive = None
     if expires_override_raw:
         try:
             expires_override_utc_naive = parse_datetime_local_eat_to_utc_naive(expires_override_raw)
         except Exception as e:
             flash(f"Invalid Expiry Override: {e}", "error")
-            return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+            return detail_redirect
 
         if expires_override_utc_naive <= paid_at_utc_naive:
             flash("Expiry override must be AFTER the paid date/time.", "error")
-            return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+            return detail_redirect
 
     # -----------------------------
-    # Compute expiry from PAID TIME (historical correctness)
+    # Compute subscription expiry
     # -----------------------------
     duration_minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
     if duration_minutes <= 0:
-        duration_minutes = 43200  # fallback 30 days
+        duration_minutes = 43200  # fallback: 30 days
 
-    base = sub.expires_at if (sub.expires_at and sub.expires_at > paid_at_utc_naive) else paid_at_utc_naive
+    base = (
+        sub.expires_at
+        if (sub.expires_at and sub.expires_at > paid_at_utc_naive)
+        else paid_at_utc_naive
+    )
     computed_expires = base + timedelta(minutes=duration_minutes)
 
     sub.status = "active"
     if not getattr(sub, "starts_at", None):
         sub.starts_at = paid_at_utc_naive
-
     sub.expires_at = expires_override_utc_naive or computed_expires
 
-    # Avoid crash if Subscription has no updated_at
     if hasattr(sub, "updated_at"):
         sub.updated_at = utcnow_naive()
 
     # -----------------------------
-    # Create Transaction (use paid_at as tx time)
+    # Build transaction
     # -----------------------------
     desc = "Manual payment entry"
     if note:
@@ -1014,7 +1011,6 @@ def customer_manual_payment(customer_id: int):
         raw_callback_json=None,
     )
 
-    # Stamp tx timestamps defensively (models differ)
     now = utcnow_naive()
     if hasattr(tx, "created_at") and not getattr(tx, "created_at", None):
         tx.created_at = paid_at_utc_naive
@@ -1022,39 +1018,78 @@ def customer_manual_payment(customer_id: int):
         tx.updated_at = now
 
     # -----------------------------
-    # Persist atomically
+    # Persist first, reconnect after
     # -----------------------------
     try:
         db.session.add(tx)
-        db.session.flush()  # tx.id available
+        db.session.flush()  # ensures tx.id is available
 
         sub.last_tx_id = tx.id
-
         db.session.add(sub)
         db.session.commit()
-
-        audit(
-            "manual_payment_recorded",
-            {
-                "customer_id": customer.id,
-                "sub_id": sub.id,
-                "tx_id": tx.id,
-                "amount": amount_int,
-                "paid_at_utc": paid_at_utc_naive.isoformat(),
-                "receipt": receipt,
-                "note": note,
-                "expiry_override": bool(expires_override_utc_naive),
-                "expires_at_utc": (sub.expires_at.isoformat() if sub.expires_at else None),
-            },
-        )
-
-        flash("Manual payment saved. Subscription updated.", "success")
 
     except Exception as e:
         db.session.rollback()
         flash(f"Failed to save manual payment: {e}", "error")
+        return detail_redirect
 
-    return redirect(url_for("admin.customer_detail", customer_id=customer_id))
+    # -----------------------------
+    # Audit after successful commit
+    # -----------------------------
+    audit(
+        "manual_payment_recorded",
+        {
+            "customer_id": customer.id,
+            "sub_id": sub.id,
+            "tx_id": tx.id,
+            "amount": amount_int,
+            "paid_at_utc": paid_at_utc_naive.isoformat(),
+            "receipt": receipt,
+            "note": note,
+            "expiry_override": bool(expires_override_utc_naive),
+            "expires_at_utc": sub.expires_at.isoformat() if sub.expires_at else None,
+        },
+    )
+
+    # -----------------------------
+    # Best-effort router/service reconnect
+    # -----------------------------
+    reconnect_result: dict[str, Any] | None = None
+    try:
+        dry_run = bool(current_app.config.get("ROUTER_AUTOMATION_DRY_RUN", True))
+
+        reconnect_result = reconnect_subscription(
+            sub,
+            reason="manual_payment_received",
+            dry_run=dry_run,
+        )
+
+        current_app.logger.info(
+            "Manual payment reconnect result sub_id=%s svc=%s identity=%s result=%s",
+            sub.id,
+            sub.service_type,
+            sub_identity_for_router(sub),
+            reconnect_result,
+        )
+
+    except Exception as router_err:
+        current_app.logger.exception(
+            "Manual payment router reconnect failed sub_id=%s customer_id=%s",
+            sub.id,
+            customer.id,
+        )
+        reconnect_result = {"ok": False, "message": str(router_err)}
+
+    if reconnect_result and not reconnect_result.get("ok", False):
+        flash(
+            "Manual payment saved and subscription updated, but router reconnect did not complete: "
+            f"{reconnect_result.get('message', 'Unknown error')}",
+            "warning",
+        )
+    else:
+        flash("Manual payment saved. Subscription updated.", "success")
+
+    return detail_redirect
 
 # =========================================================
 # Phase B — Customer Locations (Ops/Support/Admin)

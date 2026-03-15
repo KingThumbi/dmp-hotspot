@@ -29,18 +29,30 @@ class Config:
     RATELIMIT_STORAGE_URI = os.getenv("REDIS_URL", "memory://")
 
     # =========================================================
-    # Router Automation Master Switch (CANONICAL)
+    # Router automation switches
     # =========================================================
-    # Single source of truth switch for ANY router-touching code.
+    # Single source of truth switch for router-touching code.
     ROUTER_AGENT_ENABLED = _env_bool("ROUTER_AGENT_ENABLED", False)
 
-    # Compatibility aliases (used elsewhere)
-    # If you set ROUTER_AUTOMATION_ENABLED=true, we treat that as enabling router agent too.
-    ROUTER_AUTOMATION_ENABLED = _env_bool("ROUTER_AUTOMATION_ENABLED", ROUTER_AGENT_ENABLED) or ROUTER_AGENT_ENABLED
+    # Compatibility aliases used elsewhere.
+    # If ROUTER_AUTOMATION_ENABLED=true, treat that as enabling router agent too.
+    ROUTER_AUTOMATION_ENABLED = (
+        _env_bool("ROUTER_AUTOMATION_ENABLED", ROUTER_AGENT_ENABLED)
+        or ROUTER_AGENT_ENABLED
+    )
     ROUTER_AUTOMATION_DRY_RUN = _env_bool("ROUTER_AUTOMATION_DRY_RUN", True)
 
+    # Optional self-healing router reconciliation job.
+    ROUTER_RECONCILE_ENABLED = _env_bool("ROUTER_RECONCILE_ENABLED", False)
+    ROUTER_RECONCILE_INTERVAL_MINUTES = int(
+        os.getenv("ROUTER_RECONCILE_INTERVAL_MINUTES", "15")
+    )
+    ROUTER_RECONCILE_LIMIT = int(
+        os.getenv("ROUTER_RECONCILE_LIMIT", "100")
+    )
+
     # =========================================================
-    # MikroTik PPPoE Router (Core)
+    # MikroTik PPPoE router (core)
     # =========================================================
     MIKROTIK_PPPOE_HOST = os.getenv("MIKROTIK_PPPOE_HOST", "192.168.230.1").strip()
     MIKROTIK_PPPOE_PORT = int(os.getenv("MIKROTIK_PPPOE_PORT", "8728"))
@@ -49,7 +61,7 @@ class Config:
     MIKROTIK_PPPOE_TLS = _env_bool("MIKROTIK_PPPOE_TLS", False)
 
     # =========================================================
-    # MikroTik Hotspot Router (separate)
+    # MikroTik hotspot router (separate)
     # =========================================================
     MIKROTIK_HOTSPOT_HOST = os.getenv("MIKROTIK_HOTSPOT_HOST", "192.168.240.1").strip()
     MIKROTIK_HOTSPOT_PORT = int(os.getenv("MIKROTIK_HOTSPOT_PORT", "8728"))
@@ -61,14 +73,28 @@ class Config:
     # Compatibility aliases (used by mikrotik_hotspot.py today)
     # Prefer HOTSPOT_* vars; fall back to generic vars if provided.
     # =========================================================
-    MIKROTIK_HOST = os.getenv("MIKROTIK_HOTSPOT_HOST", os.getenv("MIKROTIK_HOST", "192.168.240.1")).strip()
-    MIKROTIK_PORT = int(os.getenv("MIKROTIK_HOTSPOT_PORT", os.getenv("MIKROTIK_PORT", "8728")))
-    MIKROTIK_USER = os.getenv("MIKROTIK_HOTSPOT_USER", os.getenv("MIKROTIK_USER", "admin")).strip()
-    MIKROTIK_PASSWORD = os.getenv("MIKROTIK_HOTSPOT_PASS", os.getenv("MIKROTIK_PASSWORD", "")).strip()
-    MIKROTIK_TLS = _env_bool("MIKROTIK_HOTSPOT_TLS", _env_bool("MIKROTIK_TLS", False))
+    MIKROTIK_HOST = os.getenv(
+        "MIKROTIK_HOTSPOT_HOST",
+        os.getenv("MIKROTIK_HOST", "192.168.240.1"),
+    ).strip()
+    MIKROTIK_PORT = int(
+        os.getenv("MIKROTIK_HOTSPOT_PORT", os.getenv("MIKROTIK_PORT", "8728"))
+    )
+    MIKROTIK_USER = os.getenv(
+        "MIKROTIK_HOTSPOT_USER",
+        os.getenv("MIKROTIK_USER", "admin"),
+    ).strip()
+    MIKROTIK_PASSWORD = os.getenv(
+        "MIKROTIK_HOTSPOT_PASS",
+        os.getenv("MIKROTIK_PASSWORD", ""),
+    ).strip()
+    MIKROTIK_TLS = _env_bool(
+        "MIKROTIK_HOTSPOT_TLS",
+        _env_bool("MIKROTIK_TLS", False),
+    )
 
     # =========================================================
-    # Optional safety validation (only when router is enabled)
+    # Optional safety validation (only when router automation is enabled)
     # =========================================================
     if ROUTER_AGENT_ENABLED or ROUTER_AUTOMATION_ENABLED:
         missing: list[str] = []
@@ -90,13 +116,15 @@ class Config:
             missing.append("MIKROTIK_HOTSPOT_PASS (or MIKROTIK_PASSWORD)")
 
         if missing:
-            raise RuntimeError("Router automation enabled but missing: " + ", ".join(missing))
+            raise RuntimeError(
+                "Router automation enabled but missing: " + ", ".join(missing)
+            )
 
     # =========================================================
     # M-Pesa (STK Push)
     # =========================================================
     MPESA_ENV = os.getenv("MPESA_ENV", "sandbox").strip().lower()  # sandbox | production
-    if MPESA_ENV not in ("sandbox", "production"):
+    if MPESA_ENV not in {"sandbox", "production"}:
         raise RuntimeError("MPESA_ENV must be 'sandbox' or 'production'")
 
     MPESA_CONSUMER_KEY = os.getenv("MPESA_CONSUMER_KEY", "").strip()
@@ -108,8 +136,14 @@ class Config:
     # Support both naming styles:
     # - preferred: MPESA_STK_ACCOUNT_REF / MPESA_STK_DESC
     # - legacy:    MPESA_ACCOUNT_REF / MPESA_TX_DESC
-    MPESA_STK_ACCOUNT_REF = os.getenv("MPESA_STK_ACCOUNT_REF", os.getenv("MPESA_ACCOUNT_REF", "DmpolinConnect")).strip()
-    MPESA_STK_DESC = os.getenv("MPESA_STK_DESC", os.getenv("MPESA_TX_DESC", "Internet subscription")).strip()
+    MPESA_STK_ACCOUNT_REF = os.getenv(
+        "MPESA_STK_ACCOUNT_REF",
+        os.getenv("MPESA_ACCOUNT_REF", "DmpolinConnect"),
+    ).strip()
+    MPESA_STK_DESC = os.getenv(
+        "MPESA_STK_DESC",
+        os.getenv("MPESA_TX_DESC", "Internet subscription"),
+    ).strip()
 
     if MPESA_ENV == "production" and not MPESA_CALLBACK_URL:
         raise RuntimeError("MPESA_CALLBACK_URL is not set (required in production)")
@@ -120,5 +154,7 @@ class Config:
     PORTAL_BASE_URL = os.getenv("PORTAL_BASE_URL", "").rstrip("/")
     API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
 
+    # =========================================================
+    # Tokens / service auth
+    # =========================================================
     ROUTER_AGENT_TOKEN = os.getenv("ROUTER_AGENT_TOKEN", "")
-

@@ -5,7 +5,7 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
-
+from app.services.pppoe_reconcile import reconcile_subscription_router_state
 from .extensions import db
 from .models import MpesaPayment, Subscription
 from .router_agent import pppoe_kick_active_sessions, pppoe_set_disabled
@@ -374,3 +374,26 @@ def retry_activation_failed(app, dry_run: bool = True) -> None:
                 db.session.add(p)
                 db.session.commit()
                 recon_log.exception("[activation-retry] failed payment_id=%s", p.id)
+
+def reconcile_router_state(app, dry_run: bool = True) -> None:
+    """
+    Periodic self-healing of router state based on DB truth.
+    """
+    with app.app_context():
+        try:
+            limit_n = int(app.config.get("ROUTER_RECONCILE_LIMIT", 100))
+            result = reconcile_subscription_router_state(
+                dry_run=dry_run,
+                limit=limit_n,
+            )
+            app.logger.info(
+                "Router reconcile done dry_run=%s checked=%s planned=%s applied=%s skipped=%s failures=%s",
+                dry_run,
+                result.get("checked"),
+                result.get("planned"),
+                result.get("applied"),
+                result.get("skipped"),
+                result.get("failures"),
+            )
+        except Exception:
+            app.logger.exception("Router reconcile job failed")
