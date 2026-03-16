@@ -8,6 +8,7 @@ from typing import List, Tuple
 from app.services.pppoe_reconcile import reconcile_subscription_router_state
 from .extensions import db
 from .models import MpesaPayment, Subscription
+from .services.router_actions import disconnect_subscription
 from .services.mikrotik_hotspot import disable_hotspot_user, kick_hotspot_active
 from .services.mpesa_daraja import load_mpesa_config as load_mpesa_cfg_daraja, stk_query as daraja_stk_query
 
