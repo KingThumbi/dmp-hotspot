@@ -1075,7 +1075,7 @@ def customer_manual_payment(customer_id: int) -> Response:
     # -----------------------------
     reconnect_result: dict[str, Any] | None = None
     try:
-        dry_run = bool(current_app.config.get("ROUTER_AUTOMATION_DRY_RUN", True))
+        dry_run = bool(current_app.config.get("ROUTER_AUTOMATION_DRY_RUN", False))
 
         reconnect_result = reconnect_subscription(
             sub,

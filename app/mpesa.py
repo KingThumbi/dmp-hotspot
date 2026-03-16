@@ -298,6 +298,7 @@ def _activate_subscription_and_router(payment: MpesaPayment) -> None:
     """
     try:
         from app.models import Subscription
+        from app.services.router_actions import reconnect_subscription
 
         sub = Subscription.query.get(payment.subscription_id) if payment.subscription_id else None
         now = _utcnow_naive()
@@ -312,18 +313,24 @@ def _activate_subscription_and_router(payment: MpesaPayment) -> None:
         if not sub:
             return
 
-        router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
-        dry_run = _bool_env("ROUTER_AUTOMATION_DRY_RUN", True)
+        dry_run = bool(current_app.config.get("ROUTER_AUTOMATION_DRY_RUN", False))
 
-        if router_enabled:
-            try:
-                from app.services.router_actions import reconnect_subscription
+        reconnect_result = reconnect_subscription(
+            sub,
+            reason="payment_received",
+            dry_run=dry_run,
+        )
 
-                reconnect_subscription(sub, reason="payment_received", dry_run=dry_run)
-            except Exception:
-                current_app.logger.exception("Router reconnect hook failed (activation)")
+        current_app.logger.info(
+            "Payment reconnect result sub_id=%s svc=%s username=%s result=%s",
+            sub.id,
+            sub.service_type,
+            getattr(sub, "pppoe_username", None) or getattr(sub, "hotspot_username", None),
+            reconnect_result,
+        )
 
     except Exception as e:
+        current_app.logger.exception("Router reconnect hook failed (activation)")
         try:
             payment.status = "activation_failed"
             payment.activation_attempts = (payment.activation_attempts or 0) + 1
@@ -334,7 +341,6 @@ def _activate_subscription_and_router(payment: MpesaPayment) -> None:
         except Exception:
             db.session.rollback()
         raise
-
 
 # ======================================================
 # Routes

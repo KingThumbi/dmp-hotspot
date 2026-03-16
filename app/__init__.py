@@ -98,6 +98,8 @@ def create_app() -> Flask:
 
     app.config["ROUTER_RECONCILE_ENABLED"] = _env_flag("ROUTER_RECONCILE_ENABLED", False)
     app.config["ROUTER_RECONCILE_INTERVAL_MINUTES"] = _env_int("ROUTER_RECONCILE_INTERVAL_MINUTES", 15)
+
+    app.config["ROUTER_AUTOMATION_DRY_RUN"] = _env_flag("ROUTER_AUTOMATION_DRY_RUN", False)
     # ---------------------------------------------------------
     # 6) Logging
     # ---------------------------------------------------------
