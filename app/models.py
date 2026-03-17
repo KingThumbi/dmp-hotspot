@@ -238,6 +238,13 @@ class Customer(db.Model):
     # Store phone in normalized format (e.g. 2547XXXXXXXX)
     phone: str = db.Column(db.String(20), unique=True, nullable=False, index=True)
 
+    account_number: str = db.Column(
+        db.String(32),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
+
     # PPPoE creds (optional)
     pppoe_username: Optional[str] = db.Column(db.String(64), unique=True, nullable=True, index=True)
     pppoe_password: Optional[str] = db.Column(db.String(128), nullable=True)
@@ -288,16 +295,14 @@ class Customer(db.Model):
 
     @property
     def active_location(self):
-        # Best-effort helper (DB should enforce uniqueness via partial index)
         for loc in self.locations:
             if loc.active:
                 return loc
         return None
 
     def __repr__(self) -> str:
-        return f"<Customer id={self.id} phone={self.phone} pppoe_username={self.pppoe_username}>"
-
-
+        return f"<Customer id={self.id} phone={self.phone} account_number={self.account_number} pppoe_username={self.pppoe_username}>"
+    
 # =========================================================
 # Subscriptions (Customer Entitlement)
 # =========================================================
@@ -1051,4 +1056,40 @@ class PublicLead(db.Model):
         db.DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
+    )
+
+class SubscriptionChangeLog(db.Model):
+    __tablename__ = "subscription_change_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    subscription_id = db.Column(db.Integer, db.ForeignKey("subscriptions.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
+    changed_by_admin_id = db.Column(db.Integer, db.ForeignKey("admin_users.id"), nullable=True, index=True)
+
+    reason = db.Column(db.String(255), nullable=False)
+
+    old_package_id = db.Column(db.Integer, nullable=True)
+    new_package_id = db.Column(db.Integer, nullable=True)
+
+    old_pending_package_id = db.Column(db.Integer, nullable=True)
+    new_pending_package_id = db.Column(db.Integer, nullable=True)
+
+    old_status = db.Column(db.String(20), nullable=True)
+    new_status = db.Column(db.String(20), nullable=True)
+
+    old_starts_at = db.Column(db.DateTime, nullable=True)
+    new_starts_at = db.Column(db.DateTime, nullable=True)
+
+    old_expires_at = db.Column(db.DateTime, nullable=True)
+    new_expires_at = db.Column(db.DateTime, nullable=True)
+
+    old_identity = db.Column(db.String(64), nullable=True)
+    new_identity = db.Column(db.String(64), nullable=True)
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+        index=True,
     )

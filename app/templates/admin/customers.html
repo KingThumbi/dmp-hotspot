@@ -4,12 +4,12 @@
 {% block header %}Customers{% endblock %}
 
 {% block page_actions %}
-  <form method="GET" class="row" style="gap:8px; align-items:center;">
+  <form method="GET" class="customers-toolbar">
     <input
       name="q"
       value="{{ q }}"
-      placeholder="Search phone..."
-      style="padding:10px 12px; border-radius:12px; border:1px solid var(--border); outline:none;"
+      placeholder="Search phone or account number..."
+      class="customers-search"
     />
     <button class="btn btn-primary" type="submit">Search</button>
     {% if q %}
@@ -20,187 +20,339 @@
 
 {% block content %}
   <style>
-    .meta{
+    .customers-page{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+
+    .customers-meta{
       display:flex;
       justify-content:space-between;
       align-items:center;
       gap:10px;
       flex-wrap:wrap;
-      margin: 6px 0 12px 0;
     }
-    .meta .count{ font-size:12px; font-weight:900; color: var(--muted); }
-    .muted2{ color: var(--muted); font-size:12px; }
 
-    .tablewrap{ overflow:auto; }
-    table{
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0 10px;
-      min-width: 1050px;
-    }
-    th{
-      text-align:left;
+    .customers-count{
       font-size:12px;
-      color: var(--muted);
       font-weight:900;
-      padding: 0 12px 6px 12px;
-      white-space:nowrap;
+      color:var(--muted);
     }
-    tbody tr{
+
+    .customers-tip{
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .customers-toolbar{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .customers-search{
+      min-width:260px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      outline:none;
+      background:#fff;
+    }
+
+    .customers-search:focus{
+      border-color:rgba(0,0,128,0.28);
+      box-shadow:0 0 0 3px rgba(0,0,128,0.08);
+    }
+
+    .customers-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+      gap:14px;
+    }
+
+    .customer-card{
       background:#fff;
       border:1px solid var(--border);
-      box-shadow: var(--shadow-sm);
-      border-radius:12px;
-      transition: transform .06s ease, border-color .2s ease;
-    }
-    tbody tr:hover{
-      transform: translateY(-1px);
-      border-color: rgba(0,0,128,0.20);
-    }
-    td{
-      padding:10px 12px;
-      background:#fff;
-      border-top:1px solid var(--border);
-      border-bottom:1px solid var(--border);
-      vertical-align:middle;
-      white-space:nowrap;
-    }
-    tr td:first-child{
-      border-left:1px solid var(--border);
-      border-top-left-radius:12px;
-      border-bottom-left-radius:12px;
-    }
-    tr td:last-child{
-      border-right:1px solid var(--border);
-      border-top-right-radius:12px;
-      border-bottom-right-radius:12px;
+      border-radius:18px;
+      box-shadow:var(--shadow-sm);
+      padding:16px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      transition:transform .08s ease, border-color .2s ease, box-shadow .2s ease;
     }
 
-    .actions{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
-    .mono{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:12px;
+    .customer-card:hover{
+      transform:translateY(-2px);
+      border-color:rgba(0,0,128,0.18);
+      box-shadow:0 10px 24px rgba(15,23,42,0.08);
     }
-    .btn-sm{ padding:8px 10px; font-size:12px; }
+
+    .customer-card-top{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .customer-identity{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .customer-phone{
+      font-weight:900;
+      font-size:15px;
+      line-height:1.2;
+      color:var(--text);
+      word-break:break-word;
+    }
+
+    .customer-account{
+      font-size:12px;
+      color:var(--muted);
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .customer-sections{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    .customer-panel{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:10px 12px;
+      background:linear-gradient(180deg, rgba(248,250,252,0.95), rgba(255,255,255,1));
+      min-width:0;
+    }
+
+    .customer-panel.full{
+      grid-column:1 / -1;
+    }
+
+    .panel-label{
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.03em;
+      text-transform:uppercase;
+      color:var(--muted);
+      margin-bottom:6px;
+    }
+
+    .panel-value{
+      font-size:13px;
+      color:var(--text);
+      line-height:1.45;
+      word-break:break-word;
+    }
+
+    .panel-value.muted{
+      color:var(--muted);
+    }
+
+    .customer-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:2px;
+    }
 
     .pill{
       font-size:11px;
       font-weight:900;
-      padding:3px 10px;
+      padding:4px 10px;
       border-radius:999px;
       border:1px solid var(--border);
       background:#fff;
       display:inline-flex;
       align-items:center;
       gap:6px;
+      white-space:nowrap;
     }
-    .pill.pending{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
-    .pill.active{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
-    .pill.expired{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
 
-    .pill.success{ border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.10); }
-    .pill.failed{ border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); }
-    .pill.pendingtx{ border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+    .pill.pending{
+      border-color:rgba(245,158,11,0.35);
+      background:rgba(245,158,11,0.10);
+    }
 
-    .right{ text-align:right; }
+    .pill.active{
+      border-color:rgba(16,185,129,0.35);
+      background:rgba(16,185,129,0.10);
+    }
+
+    .pill.expired{
+      border-color:rgba(239,68,68,0.35);
+      background:rgba(239,68,68,0.10);
+    }
+
+    .pill.success{
+      border-color:rgba(16,185,129,0.35);
+      background:rgba(16,185,129,0.10);
+    }
+
+    .pill.failed{
+      border-color:rgba(239,68,68,0.35);
+      background:rgba(239,68,68,0.10);
+    }
+
+    .pill.pendingtx{
+      border-color:rgba(245,158,11,0.35);
+      background:rgba(245,158,11,0.10);
+    }
+
+    .empty-state{
+      padding:18px;
+    }
+
+    @media (max-width: 720px){
+      .customers-grid{
+        grid-template-columns:1fr;
+      }
+
+      .customer-sections{
+        grid-template-columns:1fr;
+      }
+
+      .customer-panel.full{
+        grid-column:auto;
+      }
+
+      .customer-card-top{
+        flex-direction:column;
+        align-items:flex-start;
+      }
+
+      .customers-search{
+        min-width:unset;
+        width:100%;
+      }
+
+      .customers-toolbar{
+        align-items:stretch;
+      }
+    }
   </style>
 
-  <div class="meta">
-    <div class="count">
-      Showing <b>{{ rows|length }}</b> customer(s)
-      {% if q %}
-        <span class="muted2">· search: “{{ q }}”</span>
-      {% endif %}
+  <div class="customers-page">
+    <div class="customers-meta">
+      <div class="customers-count">
+        Showing <b>{{ rows|length }}</b> customer(s)
+        {% if q %}
+          <span class="customers-tip">· search: “{{ q }}”</span>
+        {% endif %}
+      </div>
+      <div class="customers-tip">
+        Tip: Use Locations for installs/relocations, and New Ticket for support work.
+      </div>
     </div>
-    <div class="muted2">Tip: Use Locations for installs/relocations, and New Ticket for support work.</div>
-  </div>
 
-  {% if not rows %}
-    <div class="card">
-      <div class="muted">No customers found{% if q %} for “{{ q }}”{% endif %}.</div>
-    </div>
-  {% else %}
-    <div class="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Phone</th>
-            <th>Customer Since</th>
-            <th>Latest Subscription</th>
-            <th>Package</th>
-            <th>Expires</th>
-            <th>Last Tx</th>
-            <th>Receipt</th>
-            <th class="right">Actions</th>
-          </tr>
-        </thead>
+    {% if not rows %}
+      <div class="card empty-state">
+        <div class="muted">No customers found{% if q %} for “{{ q }}”{% endif %}.</div>
+      </div>
+    {% else %}
+      <div class="customers-grid">
+        {% for c, s, t in rows %}
+          {% set sub_status = (s.status if s else '') %}
+          {% set tx_status = (t.status if t else '') %}
 
-        <tbody>
-          {% for c, s, t in rows %}
-            {% set sub_status = (s.status if s else '') %}
-            {% set tx_status = (t.status if t else '') %}
+          <article class="customer-card">
+            <div class="customer-card-top">
+              <div class="customer-identity">
+                <div class="customer-phone mono">{{ c.phone }}</div>
+                <div class="customer-account">
+                  <span>Account:</span>
+                  <strong class="mono">{{ c.account_number or "-" }}</strong>
+                </div>
+              </div>
 
-            <tr>
-              <td><strong class="mono">{{ c.phone }}</strong></td>
-              <td class="muted mono">{{ c.created_at }}</td>
-
-              <td>
+              <div>
                 {% if s %}
                   <span class="pill {{ sub_status }}">{{ sub_status }}</span>
                 {% else %}
-                  <span class="muted2">—</span>
+                  <span class="pill">no subscription</span>
                 {% endif %}
-              </td>
+              </div>
+            </div>
 
-              <td class="mono">
-                {% if s and s.package %}
-                  {{ s.package.code }}
-                {% elif s %}
-                  #{{ s.package_id }}
-                {% else %}
-                  <span class="muted2">—</span>
-                {% endif %}
-              </td>
+            <div class="customer-sections">
+              <div class="customer-panel">
+                <div class="panel-label">Customer Since</div>
+                <div class="panel-value mono">{{ c.created_at }}</div>
+              </div>
 
-              <td class="muted mono">
-                {% if s %}
-                  {{ s.expires_at or "-" }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-
-              <td>
-                {% if t %}
-                  {% if tx_status == "pending" %}
-                    <span class="pill pendingtx">pending</span>
-                  {% elif tx_status == "success" %}
-                    <span class="pill success">success</span>
-                  {% elif tx_status == "failed" %}
-                    <span class="pill failed">failed</span>
+              <div class="customer-panel">
+                <div class="panel-label">Package</div>
+                <div class="panel-value mono">
+                  {% if s and s.package %}
+                    {{ s.package.code }}
+                  {% elif s %}
+                    #{{ s.package_id }}
                   {% else %}
-                    <span class="pill">{{ tx_status }}</span>
+                    <span class="muted">—</span>
                   {% endif %}
-                {% else %}
-                  <span class="muted2">—</span>
-                {% endif %}
-              </td>
-
-              <td class="mono">
-                {{ t.mpesa_receipt if t and t.mpesa_receipt else "-" }}
-              </td>
-
-              <td class="right">
-                <div class="actions">
-                  <a class="btn btn-sm" href="{{ url_for('admin.customer_detail', customer_id=c.id) }}">View</a>
-                  <a class="btn btn-sm" href="{{ url_for('admin.customer_locations', customer_id=c.id) }}">Locations</a>
-                  <a class="btn btn-primary btn-sm" href="{{ url_for('admin.ticket_new_get', customer_id=c.id) }}">New Ticket</a>
                 </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% endif %}
+              </div>
+
+              <div class="customer-panel">
+                <div class="panel-label">Expires</div>
+                <div class="panel-value mono">
+                  {% if s %}
+                    {{ s.expires_at or "-" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="customer-panel">
+                <div class="panel-label">Last Transaction</div>
+                <div class="panel-value">
+                  {% if t %}
+                    {% if tx_status == "pending" %}
+                      <span class="pill pendingtx">pending</span>
+                    {% elif tx_status == "success" %}
+                      <span class="pill success">success</span>
+                    {% elif tx_status == "failed" %}
+                      <span class="pill failed">failed</span>
+                    {% else %}
+                      <span class="pill">{{ tx_status }}</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="customer-panel full">
+                <div class="panel-label">Receipt</div>
+                <div class="panel-value mono">
+                  {{ t.mpesa_receipt if t and t.mpesa_receipt else "-" }}
+                </div>
+              </div>
+            </div>
+
+            <div class="customer-actions">
+              <a class="btn btn-sm" href="{{ url_for('admin.customer_detail', customer_id=c.id) }}">View</a>
+              <a class="btn btn-sm" href="{{ url_for('admin.customer_locations', customer_id=c.id) }}">Locations</a>
+              <a class="btn btn-primary btn-sm" href="{{ url_for('admin.ticket_new_get', customer_id=c.id) }}">New Ticket</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
 {% endblock %}

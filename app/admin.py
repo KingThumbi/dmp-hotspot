@@ -45,6 +45,7 @@ from .models import (
     ExpenseTemplate,
     Package,
     Subscription,
+    SubscriptionChangeLog,
     Transaction,
 )
 from .router_agent import agent_enable
@@ -869,7 +870,13 @@ def customers():
 
     cust_q = db.session.query(Customer)
     if q:
-        cust_q = cust_q.filter(Customer.phone.ilike(f"%{q}%"))
+        like = f"%{q}%"
+        cust_q = cust_q.filter(
+            sa.or_(
+                Customer.phone.ilike(like),
+                Customer.account_number.ilike(like),
+            )
+        )
     cust_q = cust_q.order_by(Customer.created_at.desc()).limit(300).subquery()
 
     rows = (
@@ -887,17 +894,38 @@ def customers():
 
 
 @admin.get("/customers/<int:customer_id>")
-@roles_required("support", "admin")
-def customer_detail(customer_id: int):
+def customer_detail(customer_id):
     customer = db.session.get(Customer, customer_id)
-    if not customer:
-        flash("Customer not found.", "error")
-        return redirect(url_for("admin.customers"))
 
-    subs = Subscription.query.filter_by(customer_id=customer_id).order_by(Subscription.created_at.desc()).all()
-    txs = Transaction.query.filter_by(customer_id=customer_id).order_by(Transaction.created_at.desc()).limit(200).all()
+    subs = (
+        Subscription.query
+        .filter_by(customer_id=customer.id)
+        .order_by(Subscription.created_at.desc())
+        .all()
+    )
 
-    return render_template("admin/customer_detail.html", customer=customer, subs=subs, txs=txs, sub_identity=sub_identity)
+    txs = (
+        Transaction.query
+        .filter_by(customer_id=customer.id)
+        .order_by(Transaction.created_at.desc())
+        .all()
+    )
+
+    tickets = (
+        Ticket.query
+        .filter_by(customer_id=customer.id)
+        .order_by(Ticket.created_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "admin/customer_detail.html",
+        customer=customer,
+        subs=subs,
+        txs=txs,
+        tickets=tickets,
+        sub_identity=sub_identity,
+    )
 
 @admin.post("/customers/<int:customer_id>/payments/manual")
 @roles_required("support", "admin")
@@ -1831,6 +1859,8 @@ def pppoe_create():
         db.session.add(customer)
         db.session.flush()
 
+    if not customer.account_number:
+        customer.account_number = pppoe_username
     # -----------------------------
     # Prevent username collisions with ACTIVE subs
     # -----------------------------
@@ -2541,3 +2571,190 @@ def public_lead_unhandle(lead_id: int):
     flash("Lead marked as unhandled.", "success")
     return redirect(url_for("admin.public_leads_list"))
 
+@admin.get("/subscriptions/<int:sub_id>/edit")
+@roles_required("support", "admin")
+def subscription_edit_get(sub_id):
+    sub = db.session.get(Subscription, sub_id)
+    if not sub:
+        flash("Subscription not found.", "error")
+        return redirect(url_for("admin.subscriptions"))
+
+    pkg_q = Package.query.order_by(Package.code.asc()).all()
+
+    return render_template(
+        "admin/subscription_edit.html",
+        sub=sub,
+        packages=pkg_q,
+    )
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+@admin.post("/subscriptions/<int:sub_id>/edit")
+@roles_required("support", "admin")
+def subscription_edit_post(sub_id):
+    sub = db.session.get(Subscription, sub_id)
+    if not sub:
+        flash("Subscription not found.", "error")
+        return redirect(url_for("admin.subscriptions"))
+
+    package_id_raw = (request.form.get("package_id") or "").strip()
+    pending_package_id_raw = (request.form.get("pending_package_id") or "").strip()
+    status_raw = (request.form.get("status") or "").strip().lower()
+    expiry_mode = (request.form.get("expiry_mode") or "keep").strip().lower()
+    expires_at_custom_raw = (request.form.get("expires_at_custom") or "").strip()
+    identity_raw = (request.form.get("identity") or "").strip().upper()
+    reason = (request.form.get("reason") or "").strip()
+
+    if not reason:
+        flash("Reason is required.", "error")
+        return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    try:
+        package_id = int(package_id_raw)
+    except Exception:
+        flash("Select a valid package.", "error")
+        return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    new_package = db.session.get(Package, package_id)
+    if not new_package:
+        flash("Selected package was not found.", "error")
+        return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    valid_statuses = {"pending", "active", "expired"}
+    if status_raw not in valid_statuses:
+        flash("Invalid status selected.", "error")
+        return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    pending_package_id = None
+    if pending_package_id_raw:
+        try:
+            pending_package_id = int(pending_package_id_raw)
+        except Exception:
+            flash("Invalid pending package selected.", "error")
+            return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+        if pending_package_id == sub.package_id:
+            pending_package_id = None
+
+        elif not db.session.get(Package, pending_package_id):
+            flash("Pending package not found.", "error")
+            return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    old_package_id = sub.package_id
+    old_pending_package_id = sub.pending_package_id
+    old_status = sub.status
+    old_starts_at = sub.starts_at
+    old_expires_at = sub.expires_at
+    old_identity = sub.identity()
+
+    sub.package_id = new_package.id
+    sub.pending_package_id = pending_package_id
+    sub.status = status_raw
+
+    if sub.service_type == "pppoe":
+        if identity_raw:
+            sub.pppoe_username = identity_raw
+            if sub.customer and not sub.customer.account_number:
+                sub.customer.account_number = identity_raw
+    else:
+        if identity_raw:
+            sub.hotspot_username = identity_raw
+
+    now = utcnow_naive()
+
+    if expiry_mode == "keep":
+        pass
+
+    elif expiry_mode == "recalculate_now":
+        duration_minutes = int(getattr(new_package, "duration_minutes", 0) or 0)
+        if duration_minutes <= 0:
+            duration_minutes = 43200  # 30 days fallback
+
+        sub.starts_at = now
+        if sub.status == "active":
+            sub.expires_at = now + timedelta(minutes=duration_minutes)
+        else:
+            sub.expires_at = None
+
+    elif expiry_mode == "custom":
+        if not expires_at_custom_raw:
+            flash("Custom expiry selected but no expiry date was provided.", "error")
+            return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+        try:
+            eat = ZoneInfo("Africa/Nairobi")
+            dt_local = datetime.fromisoformat(expires_at_custom_raw)
+            dt_local = dt_local.replace(tzinfo=eat)
+            dt_utc_naive = dt_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        except Exception:
+            flash("Invalid custom expiry datetime.", "error")
+            return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+        if sub.status == "active" and sub.starts_at and dt_utc_naive <= sub.starts_at:
+            flash("Expiry must be after start time.", "error")
+            return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+        sub.expires_at = dt_utc_naive
+
+    else:
+        flash("Invalid expiry mode.", "error")
+        return redirect(url_for("admin.subscription_edit_get", sub_id=sub.id))
+
+    if sub.status == "pending":
+        sub.starts_at = None
+        if expiry_mode != "keep":
+            sub.expires_at = None
+
+    if sub.status == "expired":
+        if not sub.starts_at:
+            sub.starts_at = old_starts_at or now
+        if not sub.expires_at:
+            sub.expires_at = old_expires_at or now
+
+    change_log = SubscriptionChangeLog(
+        subscription_id=sub.id,
+        customer_id=sub.customer_id,
+        changed_by_admin_id=getattr(current_user, "id", None),
+        reason=reason,
+        old_package_id=old_package_id,
+        new_package_id=sub.package_id,
+        old_pending_package_id=old_pending_package_id,
+        new_pending_package_id=sub.pending_package_id,
+        old_status=old_status,
+        new_status=sub.status,
+        old_starts_at=old_starts_at,
+        new_starts_at=sub.starts_at,
+        old_expires_at=old_expires_at,
+        new_expires_at=sub.expires_at,
+        old_identity=old_identity,
+        new_identity=sub.identity(),
+    )
+
+    db.session.add(change_log)
+
+    db.session.commit()
+
+    current_app.logger.info(
+        "Subscription manually edited",
+        extra={
+            "sub_id": sub.id,
+            "customer_id": sub.customer_id,
+            "old_package_id": old_package_id,
+            "new_package_id": sub.package_id,
+            "old_pending_package_id": old_pending_package_id,
+            "new_pending_package_id": sub.pending_package_id,
+            "old_status": old_status,
+            "new_status": sub.status,
+            "old_starts_at": str(old_starts_at) if old_starts_at else None,
+            "new_starts_at": str(sub.starts_at) if sub.starts_at else None,
+            "old_expires_at": str(old_expires_at) if old_expires_at else None,
+            "new_expires_at": str(sub.expires_at) if sub.expires_at else None,
+            "old_identity": old_identity,
+            "new_identity": sub.identity(),
+            "reason": reason,
+        },
+    )
+
+    flash("Subscription updated successfully.", "success")
+    return redirect(url_for("admin.customer_detail", customer_id=sub.customer_id))   

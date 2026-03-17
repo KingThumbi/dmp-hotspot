@@ -188,16 +188,18 @@ def _parse_account_identifier(identifier: str) -> Optional[int]:
     return int(m.group(1))
 
 
-def get_or_create_customer(phone_norm: str) -> Customer:
+def get_or_create_customer(phone_norm: str, account_number: str | None = None) -> Customer:
     """Customer keyed by phone (treated as unique)."""
     cust = Customer.query.filter_by(phone=phone_norm).first()
     if cust:
+        if not cust.account_number and account_number:
+            cust.account_number = account_number
         return cust
-    cust = Customer(phone=phone_norm)
+
+    cust = Customer(phone=phone_norm, account_number=account_number)
     db.session.add(cust)
     db.session.flush()
     return cust
-
 
 def get_package_by_code(code: str) -> Package:
     pkg = Package.query.filter_by(code=code).first()

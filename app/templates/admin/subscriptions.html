@@ -4,12 +4,11 @@
 
 {% block content %}
   <style>
-    /* -------------------------------------------------------
-       Subscriptions — Dashboard-grade layout + safe tables
-       (HTML-only, preserves routes/vars)
-    -------------------------------------------------------- */
-
-    .stack{ display:flex; flex-direction:column; gap:12px; }
+    .stack{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
 
     .cardx{
       background:#fff;
@@ -18,6 +17,7 @@
       box-shadow:0 6px 18px rgba(0,0,0,.04);
       overflow:hidden;
     }
+
     .cardx-head{
       display:flex;
       align-items:flex-start;
@@ -25,28 +25,37 @@
       gap:12px;
       padding:14px 16px;
       border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+      background:linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
     }
+
     .cardx-title{
       margin:0;
       font-size:16px;
       font-weight:950;
       letter-spacing:.2px;
     }
+
     .cardx-sub{
       margin:6px 0 0 0;
       font-size:12px;
-      color: var(--muted);
-      max-width: 90ch;
+      color:var(--muted);
+      max-width:90ch;
       line-height:1.45;
     }
-    .cardx-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    .cardx-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
 
     .toolbar{
       padding:12px 16px 14px;
       border-bottom:1px solid var(--border);
-      background: rgba(2,6,23,.012);
+      background:rgba(2,6,23,.012);
     }
+
     .toolbar-row{
       display:flex;
       align-items:flex-end;
@@ -54,30 +63,39 @@
       gap:10px;
       flex-wrap:wrap;
     }
+
     .filters{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       align-items:flex-end;
-      flex: 1;
-      min-width: 260px;
+      flex:1;
+      min-width:260px;
     }
+
     .filters .field{
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-width: 160px;
+      min-width:150px;
     }
-    .filters .field.grow{ flex:1; min-width: 220px; }
+
+    .filters .field.grow{
+      flex:1;
+      min-width:220px;
+    }
+
     .filters label{
       font-size:11px;
       font-weight:900;
-      color: var(--muted);
+      color:var(--muted);
       letter-spacing:.4px;
-      text-transform: uppercase;
+      text-transform:uppercase;
       margin:0;
     }
-    .filters input, .filters select{
+
+    .filters input,
+    .filters select{
       width:100%;
     }
 
@@ -88,112 +106,159 @@
       align-items:center;
       justify-content:flex-end;
     }
+
     .link-reset{
       text-decoration:none;
       font-weight:900;
-      color: var(--muted);
+      color:var(--muted);
       padding:8px 10px;
       border-radius:12px;
       border:1px solid transparent;
     }
+
     .link-reset:hover{
-      border-color: rgba(2,6,23,.10);
-      background: rgba(2,6,23,.03);
-      color: var(--text);
+      border-color:rgba(2,6,23,.10);
+      background:rgba(2,6,23,.03);
+      color:var(--text);
     }
 
-    .table-wrap{
-      padding: 10px 12px 14px;
-      overflow-x:auto;
-      -webkit-overflow-scrolling: touch;
+    .list-wrap{
+      padding:10px 12px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
     }
-    .table-wrap::-webkit-scrollbar{ height:10px; }
-    .table-wrap::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.12); border-radius:999px; }
-    .table-wrap::-webkit-scrollbar-track{ background: rgba(0,0,0,.04); border-radius:999px; }
 
-    table{
-      width:100%;
-      min-width: 1080px; /* stable + scroll on small screens */
-      border-collapse: separate;
-      border-spacing: 0 10px;
-    }
-    thead th{
-      text-align:left;
-      font-size:12px;
-      color: var(--muted);
-      font-weight:900;
-      padding: 0 10px 4px;
-      white-space:nowrap;
-    }
-    tbody td{
-      padding:10px 12px;
+    .sub-row{
+      display:grid;
+      grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+      gap:12px;
+      align-items:center;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:14px;
       background:#fff;
-      border-top:1px solid var(--border);
-      border-bottom:1px solid var(--border);
-      vertical-align: middle;
+      box-shadow:0 2px 8px rgba(0,0,0,.025);
     }
-    tbody tr td:first-child{
-      border-left:1px solid var(--border);
-      border-top-left-radius:14px;
-      border-bottom-left-radius:14px;
+
+    .sub-row.expired{
+      background:rgba(239,68,68,0.05);
+      border-color:rgba(239,68,68,0.14);
     }
-    tbody tr td:last-child{
-      border-right:1px solid var(--border);
-      border-top-right-radius:14px;
-      border-bottom-right-radius:14px;
+
+    .sub-main{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+    }
+
+    .sub-title{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+
+    .sub-identity{
+      font-weight:950;
+      letter-spacing:.1px;
+      min-width:0;
+      overflow-wrap:anywhere;
+    }
+
+    .sub-meta{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      color:var(--muted);
+      font-size:12px;
+      min-width:0;
+    }
+
+    .sub-meta .mono{
+      color:var(--text);
+    }
+
+    .sub-cell{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .sub-label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      letter-spacing:.03em;
+      text-transform:uppercase;
+      line-height:1.1;
+    }
+
+    .sub-value{
+      font-size:13px;
+      color:var(--text);
+      line-height:1.35;
+      min-width:0;
+      overflow-wrap:anywhere;
+    }
+
+    .sub-value.muted{
+      color:var(--muted);
     }
 
     .mono{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size:12px;
     }
 
-    .cell-trunc{
-      max-width: 240px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      display:inline-block;
-      vertical-align:bottom;
-    }
-
-    .subuser{
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-      min-width:0;
-    }
-    .subuser strong{
-      font-weight:950;
-      letter-spacing:.1px;
-      max-width: 260px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .subuser small{
-      color: var(--muted);
-      font-size:12px;
+    .pill{
+      font-size:11px;
       font-weight:900;
-      letter-spacing:.2px;
-      text-transform: lowercase;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      white-space:nowrap;
+      width:max-content;
+      max-width:100%;
     }
 
-    .row-expired td{
-      background: rgba(239,68,68,0.06);
-      border-top-color: rgba(239,68,68,0.12);
-      border-bottom-color: rgba(239,68,68,0.12);
+    .pill.pending{
+      border-color:rgba(245,158,11,0.35);
+      background:rgba(245,158,11,0.10);
     }
-    .row-expired td:first-child{ border-left-color: rgba(239,68,68,0.12); }
-    .row-expired td:last-child{ border-right-color: rgba(239,68,68,0.12); }
+
+    .pill.active,
+    .pill.success{
+      border-color:rgba(16,185,129,0.35);
+      background:rgba(16,185,129,0.10);
+    }
+
+    .pill.expired,
+    .pill.failed{
+      border-color:rgba(239,68,68,0.35);
+      background:rgba(239,68,68,0.10);
+    }
+
+    .pill.neutral{
+      background:rgba(15,23,42,.03);
+    }
 
     .actions{
-      display:inline-flex;
+      display:flex;
       gap:8px;
       flex-wrap:wrap;
       justify-content:flex-end;
       align-items:center;
     }
+
     .btn-sm{
       padding:8px 10px;
       font-size:12px;
@@ -201,29 +266,71 @@
     }
 
     .empty{
-      padding: 14px 16px;
-      color: var(--muted);
-      font-size: 13px;
+      padding:14px 16px;
+      color:var(--muted);
+      font-size:13px;
     }
 
     .tip{
-      padding: 12px 16px 16px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      padding:12px 16px 16px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
     }
 
-    @media (max-width: 720px){
-      .cardx-head{ padding:12px 12px; }
-      .toolbar{ padding: 10px 12px 12px; }
-      .table-wrap{ padding: 8px 10px 12px; }
-      table{ min-width: 1040px; }
-      .cell-trunc{ max-width: 200px; }
+    @media (max-width: 1100px){
+      .sub-row{
+        grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr);
+      }
+
+      .sub-actions-wrap{
+        grid-column:1 / -1;
+      }
+
+      .actions{
+        justify-content:flex-start;
+      }
+    }
+
+    @media (max-width: 760px){
+      .cardx-head{
+        padding:12px;
+      }
+
+      .toolbar{
+        padding:10px 12px 12px;
+      }
+
+      .list-wrap{
+        padding:8px 10px 12px;
+      }
+
+      .sub-row{
+        grid-template-columns:1fr;
+        gap:10px;
+      }
+
+      .sub-actions-wrap{
+        grid-column:auto;
+      }
+
+      .filters .field,
+      .filters .field.grow{
+        min-width:100%;
+      }
+
+      .toolbar-actions{
+        width:100%;
+        justify-content:flex-start;
+      }
+
+      .actions{
+        justify-content:flex-start;
+      }
     }
   </style>
 
   <div class="stack">
-
     <section class="cardx">
       <div class="cardx-head">
         <div>
@@ -244,7 +351,6 @@
         <form method="GET">
           <div class="toolbar-row">
             <div class="filters">
-
               <div class="field grow" style="min-width:260px;">
                 <label for="q">Search</label>
                 <input
@@ -259,8 +365,8 @@
                 <label for="svc">Service</label>
                 <select id="svc" name="svc">
                   <option value="">All services</option>
-                  <option value="hotspot" {% if svc=='hotspot' %}selected{% endif %}>hotspot</option>
-                  <option value="pppoe" {% if svc=='pppoe' %}selected{% endif %}>pppoe</option>
+                  <option value="hotspot" {% if svc == 'hotspot' %}selected{% endif %}>hotspot</option>
+                  <option value="pppoe" {% if svc == 'pppoe' %}selected{% endif %}>pppoe</option>
                 </select>
               </div>
 
@@ -269,7 +375,7 @@
                 <select id="pkg" name="pkg">
                   <option value="">All packages</option>
                   {% for code in pkg_codes %}
-                    <option value="{{ code }}" {% if pkg==code %}selected{% endif %}>{{ code }}</option>
+                    <option value="{{ code }}" {% if pkg == code %}selected{% endif %}>{{ code }}</option>
                   {% endfor %}
                 </select>
               </div>
@@ -278,12 +384,11 @@
                 <label for="status">Status</label>
                 <select id="status" name="status">
                   <option value="">All status</option>
-                  <option value="pending" {% if status=='pending' %}selected{% endif %}>pending</option>
-                  <option value="active" {% if status=='active' %}selected{% endif %}>active</option>
-                  <option value="expired" {% if status=='expired' %}selected{% endif %}>expired</option>
+                  <option value="pending" {% if status == 'pending' %}selected{% endif %}>pending</option>
+                  <option value="active" {% if status == 'active' %}selected{% endif %}>active</option>
+                  <option value="expired" {% if status == 'expired' %}selected{% endif %}>expired</option>
                 </select>
               </div>
-
             </div>
 
             <div class="toolbar-actions">
@@ -295,118 +400,90 @@
       </div>
 
       {% if items and items|length %}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th style="width:70px;">ID</th>
-                <th style="width:120px;">Service</th>
-                <th style="width:240px;">User</th>
-                <th style="width:150px;">Package</th>
-                <th style="width:120px;">Status</th>
-                <th style="width:170px;">Expires</th>
-                <th style="width:140px;">Remaining</th>
-                <th style="width:90px;">Last Tx</th>
-                <th style="width:240px; text-align:right;">Action</th>
-              </tr>
-            </thead>
+        <div class="list-wrap">
+          {% for it in items %}
+            {% set s = it.s %}
+            {% set svc_type = (s.service_type or "")|lower %}
+            {% set username = it.identity or s.router_username or "-" %}
+            {% set st = (s.status or "")|lower %}
 
-            <tbody>
-              {% for it in items %}
-                {% set s = it.s %}
-                {% set svc_type = (s.service_type or "")|lower %}
-                {% set username = it.identity or s.router_username or "-" %}
+            <div class="sub-row {% if it.is_expired %}expired{% endif %}">
+              <div class="sub-main">
+                <div class="sub-title">
+                  <span class="pill neutral">{{ svc_type or "-" }}</span>
+                  <span class="sub-identity">{{ username }}</span>
+                </div>
 
-                <tr class="{% if it.is_expired %}row-expired{% endif %}">
-                  <td class="muted mono">
-                    <span class="cell-trunc" title="{{ s.id }}">{{ s.id }}</span>
-                  </td>
+                <div class="sub-meta">
+                  <span>ID</span>
+                  <span class="mono">{{ s.id }}</span>
 
-                  <td class="muted">
-                    <span class="pill" title="{{ svc_type or '-' }}">
-                      <span class="cell-trunc" style="max-width:140px;">{{ svc_type or "-" }}</span>
-                    </span>
-                  </td>
+                  {% if svc_type == "hotspot" and s.hotspot_username %}
+                    <span>· hotspot</span>
+                  {% elif svc_type == "pppoe" and s.pppoe_username %}
+                    <span>· pppoe</span>
+                  {% endif %}
 
-                  <td>
-                    <div class="subuser">
-                      <strong title="{{ username }}">{{ username }}</strong>
-                      {% if svc_type == "hotspot" and s.hotspot_username %}
-                        <small>phone</small>
-                      {% elif svc_type == "pppoe" and s.pppoe_username %}
-                        <small>pppoe</small>
-                      {% else %}
-                        <small class="muted">—</small>
-                      {% endif %}
-                    </div>
-                  </td>
+                  <span>· Last Tx</span>
+                  <span class="mono">{{ s.last_tx_id or "-" }}</span>
+                </div>
+              </div>
 
-                  <td class="mono">
-                    {% if s.package %}
-                      <span class="cell-trunc" title="{{ s.package.name }}">{{ s.package.code }}</span>
-                    {% else %}
-                      <span class="cell-trunc" title="{{ s.package_id }}">{{ s.package_id }}</span>
-                    {% endif %}
-                  </td>
+              <div class="sub-cell">
+                <div class="sub-label">Package / Status</div>
+                <div class="sub-value mono">
+                  {% if s.package %}
+                    {{ s.package.code }}
+                  {% else %}
+                    {{ s.package_id }}
+                  {% endif %}
+                </div>
+                <div>
+                  <span class="pill {{ st if st in ['pending', 'active', 'expired', 'failed', 'success'] else 'neutral' }}">
+                    {{ st or "-" }}
+                  </span>
+                </div>
+              </div>
 
-                  <td>
-                    {% set st = (s.status or "")|lower %}
-                    <span class="pill {% if st=='success' %}success{% elif st=='pending' %}pending{% elif st=='failed' %}failed{% endif %}"
-                          title="{{ st or '-' }}">
-                      <span class="cell-trunc" style="max-width:140px;">{{ st or "-" }}</span>
-                    </span>
-                  </td>
+              <div class="sub-cell">
+                <div class="sub-label">Expiry / Remaining</div>
+                <div class="sub-value mono">{{ s.expires_at or "-" }}</div>
+                <div class="sub-value">
+                  {% if it.remaining == "Expired" %}
+                    <span class="pill failed">Expired</span>
+                  {% else %}
+                    {{ it.remaining }}
+                  {% endif %}
+                </div>
+              </div>
 
-                  <td class="muted mono">
-                    {% if s.expires_at %}
-                      <span class="cell-trunc" title="{{ s.expires_at }}">{{ s.expires_at }}</span>
-                    {% else %}
-                      <span class="cell-trunc" title="-">-</span>
-                    {% endif %}
-                  </td>
+              <div class="sub-cell">
+                <div class="sub-label">Customer</div>
+                <div class="sub-value mono">{{ s.customer_id }}</div>
+              </div>
 
-                  <td>
-                    {% if it.remaining == "Expired" %}
-                      <span class="pill failed">Expired</span>
-                    {% else %}
-                      <span class="pill" title="{{ it.remaining }}">
-                        <span class="cell-trunc" style="max-width:140px;">{{ it.remaining }}</span>
-                      </span>
-                    {% endif %}
-                  </td>
+              <div class="sub-actions-wrap">
+                <div class="actions">
+                  <a class="btn btn-primary btn-sm"
+                     href="{{ url_for('admin.ticket_new_get', customer_id=s.customer_id, subscription_id=s.id) }}">
+                    Create Ticket
+                  </a>
 
-                  <td class="muted mono">
-                    <span class="cell-trunc" title="{{ s.last_tx_id or '-' }}">{{ s.last_tx_id or "-" }}</span>
-                  </td>
-
-                  <td style="text-align:right;">
-                    <div class="actions">
-
-                      {# Create ticket prefilled (Phase B) #}
-                      <a class="btn btn-primary btn-sm"
-                         href="{{ url_for('admin.ticket_new_get', customer_id=s.customer_id, subscription_id=s.id) }}">
-                        Create Ticket
-                      </a>
-
-                      {# Existing router enable #}
-                      {% if s.status == "active" and s.expires_at and not it.is_expired %}
-                        <form method="POST"
-                              action="{{ url_for('admin.subscription_enable', sub_id=s.id) }}"
-                              style="display:inline;">
-                          <button type="submit" class="btn btn-sm" style="font-weight:900;">
-                            Enable on Router
-                          </button>
-                        </form>
-                      {% else %}
-                        <span class="muted" style="align-self:center;">—</span>
-                      {% endif %}
-
-                    </div>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                  {% if s.status == "active" and s.expires_at and not it.is_expired %}
+                    <form method="POST"
+                          action="{{ url_for('admin.subscription_enable', sub_id=s.id) }}"
+                          style="display:inline;">
+                      <button type="submit" class="btn btn-sm" style="font-weight:900;">
+                        Enable on Router
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="sub-value muted">—</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
         </div>
       {% else %}
         <div class="empty">No subscriptions found.</div>
@@ -418,6 +495,5 @@
         </div>
       {% endif %}
     </section>
-
   </div>
 {% endblock %}

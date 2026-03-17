@@ -4,12 +4,20 @@
 {% block header %}Customer{% endblock %}
 
 {% block page_subtitle %}
-  <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-    <span class="mono" style="font-size:12px;">{{ customer.phone }}</span>
-    <span style="opacity:.65;">•</span>
+  <div class="cd-subtitle">
+    <span class="mono">{{ customer.phone }}</span>
+    <span class="sep">•</span>
     <span>Customer since {{ customer.created_at }}</span>
-    <span style="opacity:.65;">•</span>
-    <span class="mono" style="font-size:12px;">ID: {{ customer.id }}</span>
+    <span class="sep">•</span>
+    <span class="mono">ID: {{ customer.id }}</span>
+    {% if customer.account_number %}
+      <span class="sep">•</span>
+      <span class="mono">Account: {{ customer.account_number }}</span>
+    {% endif %}
+    {% if customer.pppoe_username %}
+      <span class="sep">•</span>
+      <span class="mono">PPPoE: {{ customer.pppoe_username }}</span>
+    {% endif %}
   </div>
 {% endblock %}
 
@@ -21,25 +29,38 @@
 
 {% block content %}
   <style>
-    /* -------------------------------------------------------
-       Customer Detail — clean admin look + safe responsive tables
-    -------------------------------------------------------- */
-
     .mono{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size:12px;
     }
 
+    .cd-subtitle{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .cd-subtitle .sep{ opacity:.55; }
+
     .page-grid{
       display:grid;
-      gap:12px;
+      gap:14px;
+    }
+
+    .hero{
+      display:grid;
+      grid-template-columns:minmax(0, 1.35fr) minmax(0, .95fr);
+      gap:14px;
     }
 
     .panel{
-      background: var(--card, #fff);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 10px 20px rgba(0,0,0,.03);
+      background:var(--card, #fff);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 8px 24px rgba(15,23,42,.04);
       overflow:hidden;
     }
 
@@ -48,27 +69,30 @@
       align-items:flex-start;
       justify-content:space-between;
       gap:12px;
-      padding:12px 14px;
-      border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,0));
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(15,23,42,.03), rgba(15,23,42,0));
     }
+
+    .panel-head.tight{ padding-bottom:12px; }
 
     .panel-title{
       margin:0;
       font-size:14px;
-      font-weight:900;
+      font-weight:950;
       letter-spacing:.2px;
       line-height:1.2;
     }
 
     .panel-subtitle{
-      margin-top:4px;
+      margin-top:5px;
       font-size:12px;
-      color: var(--muted);
+      color:var(--muted);
       display:flex;
       flex-wrap:wrap;
       gap:8px;
       align-items:center;
+      line-height:1.45;
     }
 
     .panel-actions{
@@ -79,59 +103,225 @@
       justify-content:flex-end;
     }
 
-    .table-wrap{
-      overflow:auto;
-      -webkit-overflow-scrolling: touch;
+    .hero-body{
+      padding:16px;
+      display:grid;
+      gap:14px;
     }
 
-    table{
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0;
-      min-width: 760px;
+    .identity{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
     }
 
-    thead th{
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      text-align:left;
+    .identity-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+
+    .identity-name{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+
+    .identity-phone{
+      margin:0;
+      font-size:24px;
+      line-height:1.1;
+      font-weight:1000;
+      letter-spacing:.1px;
+      overflow-wrap:anywhere;
+    }
+
+    .identity-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+
+    .kpi-grid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:10px;
+    }
+
+    .kpi{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:linear-gradient(180deg, rgba(248,250,252,.9), rgba(255,255,255,1));
+      min-width:0;
+    }
+
+    .kpi-label{
       font-size:11px;
-      color: var(--muted);
       font-weight:900;
-      letter-spacing:.35px;
-      text-transform: uppercase;
-      padding:10px 12px;
-      background: #fff;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      margin-bottom:6px;
+      line-height:1.2;
     }
 
-    tbody td{
-      padding:11px 12px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: top;
+    .kpi-value{
+      font-size:14px;
+      font-weight:900;
+      color:var(--text);
+      line-height:1.35;
+      overflow-wrap:anywhere;
+    }
+
+    .kpi-value.small{
+      font-size:13px;
+      font-weight:700;
+    }
+
+    .quick-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .summary-list{
+      padding:16px;
+      display:grid;
+      gap:12px;
+    }
+
+    .summary-item{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:flex-start;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:14px;
       background:#fff;
-      white-space: nowrap;
     }
 
-    tbody tr:hover td{
-      background: rgba(0,0,0,.015);
+    .summary-item-label{
+      font-size:11px;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      color:var(--muted);
+      margin-bottom:4px;
     }
 
-    .truncate{
-      max-width: 260px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space: nowrap;
-      display:inline-block;
-      vertical-align: bottom;
+    .summary-item-value{
+      font-size:13px;
+      line-height:1.45;
+      overflow-wrap:anywhere;
     }
 
-    .wrap{
-      white-space: normal !important;
-      overflow-wrap: anywhere;
-      word-break: break-word;
+    .summary-item-right{
+      text-align:right;
+      min-width:110px;
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .table-wrap{
+      padding:10px 12px 14px;
+    }
+
+    .table-list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .row-card{
+      display:grid;
+      grid-template-columns:minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.15fr) auto;
+      gap:12px;
+      align-items:center;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#fff;
+      box-shadow:0 2px 10px rgba(15,23,42,.02);
+    }
+
+    .row-card:hover{
+      border-color:rgba(0,0,128,.14);
+      box-shadow:0 8px 20px rgba(15,23,42,.04);
+    }
+
+    .row-card.expired{
+      background:rgba(239,68,68,.045);
+      border-color:rgba(239,68,68,.14);
+    }
+
+    .row-main{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+    }
+
+    .row-title{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+
+    .row-title-text{
+      font-weight:950;
+      line-height:1.3;
+      overflow-wrap:anywhere;
+    }
+
+    .row-sub{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+
+    .row-block{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .row-label{
+      font-size:11px;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      color:var(--muted);
+      line-height:1.2;
+    }
+
+    .row-value{
+      font-size:13px;
+      line-height:1.4;
+      overflow-wrap:anywhere;
+    }
+
+    .row-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      align-items:center;
     }
 
     .pill{
@@ -139,356 +329,620 @@
       align-items:center;
       gap:6px;
       padding:4px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(0,0,0,.02);
-      font-size:12px;
-      font-weight:800;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(15,23,42,.03);
+      font-size:11px;
+      font-weight:900;
       line-height:1.1;
-      white-space: nowrap;
+      white-space:nowrap;
+      width:max-content;
+      max-width:100%;
     }
 
-    .pill--ok{ border-color: rgba(0,128,0,.25); background: rgba(0,128,0,.06); }
-    .pill--warn{ border-color: rgba(255,165,0,.35); background: rgba(255,165,0,.10); }
-    .pill--bad{ border-color: rgba(220,20,60,.25); background: rgba(220,20,60,.07); }
-    .pill--info{ border-color: rgba(0,0,128,.25); background: rgba(0,0,128,.06); }
+    .pill--ok{
+      border-color:rgba(16,185,129,.35);
+      background:rgba(16,185,129,.10);
+    }
 
-    .muted2{ color: var(--muted); opacity:.9; }
+    .pill--warn{
+      border-color:rgba(245,158,11,.35);
+      background:rgba(245,158,11,.10);
+    }
+
+    .pill--bad{
+      border-color:rgba(239,68,68,.35);
+      background:rgba(239,68,68,.10);
+    }
+
+    .pill--info{
+      border-color:rgba(0,0,128,.22);
+      background:rgba(0,0,128,.06);
+    }
+
+    .pill--neutral{
+      background:rgba(15,23,42,.03);
+    }
+
+    .muted2{
+      color:var(--muted);
+      opacity:.92;
+    }
 
     .empty{
-      padding:14px;
-      color: var(--muted);
+      padding:16px;
+      color:var(--muted);
       font-size:13px;
     }
 
-    /* Manual payment form styling (labelled fields) */
+    .mp-form-wrap{
+      padding:14px 16px 16px;
+      border-top:1px solid var(--border);
+      background:rgba(2,6,23,.012);
+    }
+
     .mp-form{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       align-items:flex-end;
-      justify-content:flex-end;
     }
 
     .fg{
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-width: 180px;
+      min-width:180px;
     }
 
     .lbl{
       font-size:11px;
       font-weight:900;
       letter-spacing:.25px;
-      color: var(--muted);
-      text-transform: uppercase;
+      color:var(--muted);
+      text-transform:uppercase;
+      line-height:1.2;
     }
 
     .hint{
       font-size:11px;
-      color: var(--muted);
-      opacity:.85;
-      margin-top: -2px;
-      max-width: 260px;
-      line-height:1.25;
+      color:var(--muted);
+      opacity:.88;
+      margin-top:-2px;
+      max-width:260px;
+      line-height:1.3;
     }
 
     .field{
       padding:10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--card, #fff);
-      color: inherit;
-      font: inherit;
-      outline: none;
-      min-height: 40px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card, #fff);
+      color:inherit;
+      font:inherit;
+      outline:none;
+      min-height:40px;
     }
 
-    select.field{ cursor:pointer; }
-    .w-sub{ min-width: 260px; }
-    .w-amt{ width: 150px; min-width: 150px; }
-    .w-dt{ width: 210px; min-width: 210px; }
-    .w-wide{ width: 220px; min-width: 220px; }
+    .field:focus{
+      border-color:rgba(0,0,128,.22);
+      box-shadow:0 0 0 3px rgba(0,0,128,.06);
+    }
+
+    select.field{
+      cursor:pointer;
+    }
+
+    .w-sub{ min-width:260px; }
+    .w-amt{ width:150px; min-width:150px; }
+    .w-dt{ width:210px; min-width:210px; }
+    .w-wide{ width:220px; min-width:220px; }
 
     .btn-inline{
-      margin-top: 18px; /* aligns with inputs */
-      white-space: nowrap;
+      margin-top:18px;
+      white-space:nowrap;
     }
 
-    @media (max-width: 720px){
-      table{ min-width: 900px; }
-      .panel-head{ align-items:flex-start; }
-      .panel-actions{ justify-content:flex-start; }
-      .mp-form{ justify-content:flex-start; }
-      .fg{ min-width: 220px; }
-      .btn-inline{ margin-top: 0; }
+    .tiny-note{
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      padding:0 16px 16px;
+    }
+
+    @media (max-width: 1100px){
+      .hero{
+        grid-template-columns:1fr;
+      }
+
+      .kpi-grid{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+
+      .row-card{
+        grid-template-columns:minmax(0, 1.6fr) minmax(0, 1fr) auto;
+      }
+
+      .row-actions-wrap{
+        grid-column:1 / -1;
+      }
+
+      .row-actions{
+        justify-content:flex-start;
+      }
+    }
+
+    @media (max-width: 760px){
+      .hero-body,
+      .summary-list,
+      .mp-form-wrap{
+        padding:12px;
+      }
+
+      .kpi-grid{
+        grid-template-columns:1fr;
+      }
+
+      .row-card{
+        grid-template-columns:1fr;
+        gap:10px;
+      }
+
+      .row-actions-wrap{
+        grid-column:auto;
+      }
+
+      .panel-head{
+        padding:12px;
+      }
+
+      .panel-actions{
+        justify-content:flex-start;
+      }
+
+      .mp-form{
+        justify-content:flex-start;
+      }
+
+      .fg,
+      .w-sub,
+      .w-amt,
+      .w-dt,
+      .w-wide{
+        min-width:100%;
+        width:100%;
+      }
+
+      .btn-inline{
+        margin-top:0;
+        width:100%;
+      }
     }
   </style>
 
+  {% set latest_sub = subs[0] if subs else None %}
+  {% set primary_sub = none %}
+  {% for sub in subs %}
+    {% if (sub.status|string)|lower == 'active' %}
+      {% set primary_sub = sub %}
+    {% endif %}
+  {% endfor %}
+  {% if not primary_sub %}
+    {% set primary_sub = latest_sub %}
+  {% endif %}
+
+  {% set primary_identity = "-" %}
+  {% if primary_sub %}
+    {% if (primary_sub.service_type or "")|lower == "pppoe" %}
+      {% set primary_identity = primary_sub.pppoe_username or primary_sub.router_username or "-" %}
+    {% else %}
+      {% set primary_identity = primary_sub.hotspot_username or primary_sub.router_username or "-" %}
+    {% endif %}
+  {% endif %}
+
   <div class="page-grid">
 
-    <!-- ======================= Subscriptions ======================= -->
+    <section class="hero">
+      <div class="panel">
+        <div class="hero-body">
+          <div class="identity">
+            <div class="identity-top">
+              <div class="identity-name">
+                <h2 class="identity-phone mono">{{ customer.phone }}</h2>
+                <div class="identity-meta">
+                  <span>Customer profile overview</span>
+                  <span>•</span>
+                  <span class="mono">ID {{ customer.id }}</span>
+                </div>
+              </div>
+
+              {% if primary_sub %}
+                {% set pst = (primary_sub.status|string)|lower %}
+                {% if 'active' in pst or 'enabled' in pst %}
+                  <span class="pill pill--ok">{{ primary_sub.status }}</span>
+                {% elif 'expired' in pst or 'disabled' in pst or 'blocked' in pst %}
+                  <span class="pill pill--bad">{{ primary_sub.status }}</span>
+                {% else %}
+                  <span class="pill pill--warn">{{ primary_sub.status }}</span>
+                {% endif %}
+              {% else %}
+                <span class="pill pill--neutral">No subscription</span>
+              {% endif %}
+            </div>
+
+            <div class="kpi-grid">
+              <div class="kpi">
+                <div class="kpi-label">Account Number</div>
+                <div class="kpi-value mono">{{ customer.account_number or "-" }}</div>
+              </div>
+
+              <div class="kpi">
+                <div class="kpi-label">PPPoE Username</div>
+                <div class="kpi-value mono">{{ customer.pppoe_username or "-" }}</div>
+              </div>
+
+              <div class="kpi">
+                <div class="kpi-label">Customer Since</div>
+                <div class="kpi-value small">{{ customer.created_at }}</div>
+              </div>
+
+              <div class="kpi">
+                <div class="kpi-label">Current Package</div>
+                <div class="kpi-value mono">
+                  {% if primary_sub and primary_sub.package %}
+                    {{ primary_sub.package.code }}
+                  {% elif primary_sub %}
+                    {{ primary_sub.package_id }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="kpi">
+                <div class="kpi-label">Current Identity</div>
+                <div class="kpi-value mono">{{ primary_identity }}</div>
+              </div>
+
+              <div class="kpi">
+                <div class="kpi-label">Expiry</div>
+                <div class="kpi-value small">
+                  {% if primary_sub %}
+                    {{ primary_sub.expires_at or "-" }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="quick-actions">
+              <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Manage Locations</a>
+              <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get', customer_id=customer.id) }}">Open Ticket</a>
+              <a class="btn" href="{{ url_for('admin.customers') }}">All Customers</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head tight">
+          <div>
+            <h3 class="panel-title">Quick Summary</h3>
+            <div class="panel-subtitle">
+              <span>At-a-glance customer state</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-list">
+          <div class="summary-item">
+            <div>
+              <div class="summary-item-label">Subscriptions</div>
+              <div class="summary-item-value">{{ subs|length }} total</div>
+            </div>
+            <div class="summary-item-right">
+              {% if primary_sub %}
+                {{ primary_sub.service_type or "-" }}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div>
+              <div class="summary-item-label">Transactions</div>
+              <div class="summary-item-value">{{ txs|length }} total</div>
+            </div>
+            <div class="summary-item-right">
+              {% if txs %}
+                Latest ID {{ txs[0].id }}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div>
+              <div class="summary-item-label">Latest Receipt</div>
+              <div class="summary-item-value mono">
+                {% if txs and txs[0].mpesa_receipt %}
+                  {{ txs[0].mpesa_receipt }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+            <div class="summary-item-right">Payments</div>
+          </div>
+
+          <div class="summary-item">
+            <div>
+              <div class="summary-item-label">Locations</div>
+              <div class="summary-item-value">
+                {% if customer.active_location %}
+                  Active location set
+                {% else %}
+                  No active location
+                {% endif %}
+              </div>
+            </div>
+            <div class="summary-item-right">
+              <a class="btn btn-sm" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Open</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
         <div>
           <h3 class="panel-title">Subscriptions</h3>
           <div class="panel-subtitle">
-            <span>Active services linked to this customer</span>
-            <span style="opacity:.65;">•</span>
+            <span>All services linked to this customer</span>
+            <span>•</span>
             <span class="mono">{{ subs|length }} total</span>
           </div>
         </div>
         <div class="panel-actions">
-          <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Manage Locations</a>
-          <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get', customer_id=customer.id) }}">Open Ticket</a>
+          <a class="btn" href="{{ url_for('admin.customer_locations', customer_id=customer.id) }}">Locations</a>
+          <a class="btn btn-primary" href="{{ url_for('admin.ticket_new_get', customer_id=customer.id) }}">Create Ticket</a>
         </div>
       </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Service</th>
-              <th>Status</th>
-              <th>Package</th>
-              <th>User</th>
-              <th>Starts</th>
-              <th>Expires</th>
-              <th>Last Tx</th>
-            </tr>
-          </thead>
-          <tbody>
+      {% if subs %}
+        <div class="table-wrap">
+          <div class="table-list">
             {% for s in subs %}
-              <tr>
-                <td class="mono muted2"><span class="truncate" title="{{ s.id }}">{{ s.id }}</span></td>
+              {% set st = (s.status|string)|lower %}
+              {% if (s.service_type or "")|lower == "pppoe" %}
+                {% set row_identity = s.pppoe_username or s.router_username or "-" %}
+              {% else %}
+                {% set row_identity = s.hotspot_username or s.router_username or "-" %}
+              {% endif %}
 
-                <td>
-                  <span class="pill pill--info" title="{{ s.service_type }}">{{ s.service_type }}</span>
-                </td>
+              <div class="row-card {% if 'expired' in st %}expired{% endif %}">
+                <div class="row-main">
+                  <div class="row-title">
+                    <span class="pill pill--info">{{ s.service_type }}</span>
+                    <span class="row-title-text mono">{{ row_identity }}</span>
+                  </div>
+                  <div class="row-sub">
+                    <span>ID</span>
+                    <span class="mono">{{ s.id }}</span>
+                    <span>•</span>
+                    <span>Package</span>
+                    <span class="mono">{{ s.package.code if s.package else s.package_id }}</span>
+                    <span>•</span>
+                    <span>Last Tx</span>
+                    <span class="mono">{{ s.last_tx_id or "-" }}</span>
+                  </div>
+                </div>
 
-                {% set st = (s.status|string)|lower %}
-                <td>
-                  {% if 'active' in st or 'enabled' in st %}
-                    <span class="pill pill--ok" title="{{ s.status }}">{{ s.status }}</span>
-                  {% elif 'expired' in st or 'disabled' in st or 'blocked' in st %}
-                    <span class="pill pill--bad" title="{{ s.status }}">{{ s.status }}</span>
-                  {% else %}
-                    <span class="pill pill--warn" title="{{ s.status }}">{{ s.status }}</span>
-                  {% endif %}
-                </td>
+                <div class="row-block">
+                  <div class="row-label">Status / Starts</div>
+                  <div class="row-value">
+                    {% if 'active' in st or 'enabled' in st %}
+                      <span class="pill pill--ok">{{ s.status }}</span>
+                    {% elif 'expired' in st or 'disabled' in st or 'blocked' in st %}
+                      <span class="pill pill--bad">{{ s.status }}</span>
+                    {% else %}
+                      <span class="pill pill--warn">{{ s.status }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="row-value muted2">{{ s.starts_at or "-" }}</div>
+                </div>
 
-                <td class="mono">
-                  <span class="truncate" title="{{ s.package.code if s.package else s.package_id }}">
-                    {{ s.package.code if s.package else s.package_id }}
-                  </span>
-                </td>
+                <div class="row-block">
+                  <div class="row-label">Expiry</div>
+                  <div class="row-value muted2">{{ s.expires_at or "-" }}</div>
+                </div>
 
-                <td class="mono">
-                  <span class="truncate" title="{{ sub_identity(s) or '-' }}">
-                    {{ sub_identity(s) or "-" }}
-                  </span>
-                </td>
-
-                <td class="muted2">
-                  <span class="truncate" title="{{ s.starts_at or '-' }}">{{ s.starts_at or "-" }}</span>
-                </td>
-
-                <td class="muted2">
-                  <span class="truncate" title="{{ s.expires_at or '-' }}">{{ s.expires_at or "-" }}</span>
-                </td>
-
-                <td class="muted2 mono">
-                  <span class="truncate" title="{{ s.last_tx_id or '-' }}">{{ s.last_tx_id or "-" }}</span>
-                </td>
-              </tr>
-            {% else %}
-              <tr>
-                <td colspan="8" style="padding:0;">
-                  <div class="empty">No subscriptions yet.</div>
-                </td>
-              </tr>
+                <div class="row-actions-wrap">
+                  <div class="row-actions">
+                    <a class="btn btn-sm" href="{{ url_for('admin.subscription_edit_get', sub_id=s.id) }}">Edit</a>
+                    <a class="btn btn-primary btn-sm"
+                       href="{{ url_for('admin.ticket_new_get', customer_id=customer.id, subscription_id=s.id) }}">
+                      Ticket
+                    </a>
+                  </div>
+                </div>
+              </div>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="empty">No subscriptions yet.</div>
+      {% endif %}
     </section>
 
-    <!-- ======================= Transactions ======================= -->
     <section class="panel">
       <div class="panel-head">
         <div>
           <h3 class="panel-title">Transactions</h3>
           <div class="panel-subtitle">
             <span>Payments and billing history</span>
-            <span style="opacity:.65;">•</span>
+            <span>•</span>
             <span class="mono">{{ txs|length }} total</span>
           </div>
         </div>
-
         <div class="panel-actions">
           <a class="btn" href="{{ url_for('admin.customers') }}">All Customers</a>
-
-          {# Manual payment entry (UI) #}
-          <form method="post"
-                action="{{ url_for('admin.customer_manual_payment', customer_id=customer.id) }}"
-                class="mp-form">
-
-            <div class="fg">
-              <label class="lbl" for="mp_subscription_id">Subscription</label>
-              <select id="mp_subscription_id" name="subscription_id" required class="field w-sub"
-                      aria-label="Select subscription to apply payment to">
-                <option value="" selected disabled>Select subscription</option>
-                {% for s in subs %}
-                  <option value="{{ s.id }}">
-                    #{{ s.id }} — {{ s.service_type }} — {{ sub_identity(s) or "-" }}
-                  </option>
-                {% endfor %}
-              </select>
-              <div class="hint">Choose the service you are recording payment for.</div>
-            </div>
-
-            <div class="fg">
-              <label class="lbl" for="mp_amount">Amount (KES)</label>
-              <input id="mp_amount" name="amount" required inputmode="numeric" pattern="[0-9]+"
-                     class="field w-amt" placeholder="e.g. 1000"
-                     aria-label="Amount in Kenya shillings" />
-              <div class="hint">Whole number only (e.g. 1000).</div>
-            </div>
-
-            <div class="fg">
-              <label class="lbl" for="mp_paid_at">Paid date &amp; time (EAT)</label>
-              <input id="mp_paid_at" name="paid_at" required type="datetime-local" step="60"
-                     class="field w-dt"
-                     aria-label="Paid date and time in Africa/Nairobi timezone" />
-              <div class="hint">Use the customer’s actual payment time.</div>
-            </div>
-
-            <div class="fg">
-              <label class="lbl" for="mp_expires_override">Expiry override (optional, EAT)</label>
-              <input id="mp_expires_override" name="expires_at_override" type="datetime-local" step="60"
-                     class="field w-dt"
-                     aria-label="Optional expiry override in Africa/Nairobi timezone" />
-              <div class="hint">Optional. Must be after the paid time.</div>
-            </div>
-
-            <div class="fg">
-              <label class="lbl" for="mp_receipt">Receipt / Reference (optional)</label>
-              <input id="mp_receipt" name="receipt" class="field w-wide"
-                     placeholder="e.g. QBC7H9..."
-                     aria-label="Receipt or reference number" />
-              <div class="hint">M-Pesa receipt, cash ref, bank ref, etc.</div>
-            </div>
-
-            <div class="fg">
-              <label class="lbl" for="mp_note">Internal note (optional)</label>
-              <input id="mp_note" name="note" class="field w-wide"
-                     placeholder="e.g. Backdated payment"
-                     aria-label="Internal note" />
-              <div class="hint">Visible to staff only.</div>
-            </div>
-
-            <button class="btn btn-primary btn-inline" type="submit" title="Save payment and update subscription">
-              Record Payment
-            </button>
-          </form>
         </div>
       </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Status</th>
-              <th>Amount</th>
-              <th>Package</th>
-              <th>Checkout</th>
-              <th>Receipt</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div class="mp-form-wrap">
+        <form method="post"
+              action="{{ url_for('admin.customer_manual_payment', customer_id=customer.id) }}"
+              class="mp-form">
+
+          <div class="fg">
+            <label class="lbl" for="mp_subscription_id">Subscription</label>
+            <select id="mp_subscription_id" name="subscription_id" required class="field w-sub"
+                    aria-label="Select subscription to apply payment to">
+              <option value="" selected disabled>Select subscription</option>
+              {% for s in subs %}
+                {% if (s.service_type or "")|lower == "pppoe" %}
+                  {% set pay_identity = s.pppoe_username or s.router_username or "-" %}
+                {% else %}
+                  {% set pay_identity = s.hotspot_username or s.router_username or "-" %}
+                {% endif %}
+                <option value="{{ s.id }}">
+                  #{{ s.id }} — {{ s.service_type }} — {{ pay_identity }}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="hint">Choose the subscription you are recording payment for.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="mp_amount">Amount (KES)</label>
+            <input id="mp_amount" name="amount" required inputmode="numeric" pattern="[0-9]+"
+                   class="field w-amt" placeholder="e.g. 1000"
+                   aria-label="Amount in Kenya shillings" />
+            <div class="hint">Whole number only.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="mp_paid_at">Paid date &amp; time (EAT)</label>
+            <input id="mp_paid_at" name="paid_at" required type="datetime-local" step="60"
+                   class="field w-dt"
+                   aria-label="Paid date and time in Africa/Nairobi timezone" />
+            <div class="hint">Use the actual payment time.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="mp_expires_override">Expiry override (optional, EAT)</label>
+            <input id="mp_expires_override" name="expires_at_override" type="datetime-local" step="60"
+                   class="field w-dt"
+                   aria-label="Optional expiry override in Africa/Nairobi timezone" />
+            <div class="hint">Optional. Must be after paid time.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="mp_receipt">Receipt / Reference</label>
+            <input id="mp_receipt" name="receipt" class="field w-wide"
+                   placeholder="e.g. QBC7H9..."
+                   aria-label="Receipt or reference number" />
+            <div class="hint">M-Pesa, cash, or bank reference.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="mp_note">Internal note</label>
+            <input id="mp_note" name="note" class="field w-wide"
+                   placeholder="e.g. Backdated payment"
+                   aria-label="Internal note" />
+            <div class="hint">Visible to staff only.</div>
+          </div>
+
+          <button class="btn btn-primary btn-inline" type="submit" title="Save payment and update subscription">
+            Record Payment
+          </button>
+        </form>
+      </div>
+
+      {% if txs %}
+        <div class="table-wrap">
+          <div class="table-list">
             {% for t in txs %}
-              <tr>
-                <td class="mono muted2"><span class="truncate" title="{{ t.id }}">{{ t.id }}</span></td>
+              {% set ts = (t.status|string)|lower %}
+              {% set rc = (t.result_code|string)|upper %}
+              {% set is_manual = (rc == "MANUAL") %}
+              {% set is_success = ('success' in ts) or ('completed' in ts) or ('paid' in ts) %}
+              {% set is_voided = ('void' in ts) or ('voided=1' in ((t.result_desc or '')|lower)) %}
 
-                {% set ts = (t.status|string)|lower %}
-                <td>
-                  {% if 'success' in ts or 'completed' in ts or 'paid' in ts %}
-                    <span class="pill pill--ok" title="{{ t.status }}">{{ t.status }}</span>
-                  {% elif 'failed' in ts or 'cancel' in ts or 'timeout' in ts %}
-                    <span class="pill pill--bad" title="{{ t.status }}">{{ t.status }}</span>
-                  {% elif 'void' in ts %}
-                    <span class="pill pill--warn" title="{{ t.status }}">{{ t.status }}</span>
-                  {% else %}
-                    <span class="pill pill--warn" title="{{ t.status }}">{{ t.status }}</span>
-                  {% endif %}
-                </td>
+              <div class="row-card">
+                <div class="row-main">
+                  <div class="row-title">
+                    {% if 'success' in ts or 'completed' in ts or 'paid' in ts %}
+                      <span class="pill pill--ok">{{ t.status }}</span>
+                    {% elif 'failed' in ts or 'cancel' in ts or 'timeout' in ts %}
+                      <span class="pill pill--bad">{{ t.status }}</span>
+                    {% else %}
+                      <span class="pill pill--warn">{{ t.status }}</span>
+                    {% endif %}
+                    <span class="row-title-text mono">KES {{ t.amount }}</span>
+                  </div>
 
-                <td class="mono">
-                  <span class="truncate" title="{{ t.amount }}">KES {{ t.amount }}</span>
-                </td>
+                  <div class="row-sub">
+                    <span>ID</span>
+                    <span class="mono">{{ t.id }}</span>
+                    <span>•</span>
+                    <span>Package</span>
+                    <span class="mono">{{ t.package.code if t.package else t.package_id }}</span>
+                    <span>•</span>
+                    <span>Created</span>
+                    <span>{{ t.created_at }}</span>
+                  </div>
+                </div>
 
-                <td class="mono">
-                  <span class="truncate" title="{{ t.package.code if t.package else t.package_id }}">
-                    {{ t.package.code if t.package else t.package_id }}
-                  </span>
-                </td>
+                <div class="row-block">
+                  <div class="row-label">Receipt / Checkout</div>
+                  <div class="row-value mono">{{ t.mpesa_receipt or "-" }}</div>
+                  <div class="row-value muted2 mono">{{ t.checkout_request_id or "-" }}</div>
+                </div>
 
-                <td class="mono muted2">
-                  <span class="truncate" title="{{ t.checkout_request_id or '-' }}">
-                    {{ t.checkout_request_id or "-" }}
-                  </span>
-                </td>
+                <div class="row-block">
+                  <div class="row-label">Result</div>
+                  <div class="row-value mono">{{ t.result_code or "-" }}</div>
+                  <div class="row-value muted2">{{ t.result_desc or "-" }}</div>
+                </div>
 
-                <td class="mono">
-                  <span class="truncate" title="{{ t.mpesa_receipt or '-' }}">
-                    {{ t.mpesa_receipt or "-" }}
-                  </span>
-                </td>
-
-                <td class="muted2">
-                  <span class="truncate" title="{{ t.created_at }}">{{ t.created_at }}</span>
-                </td>
-
-                <td>
-                  {% set rc = (t.result_code|string)|upper %}
-                  {% set is_manual = (rc == "MANUAL") %}
-                  {% set is_success = ('success' in ts) %}
-                  {% set is_voided = ('void' in ts) or ('voided=1' in ((t.result_desc or '')|lower)) %}
-
-                  {% if is_manual and is_success and not is_voided %}
-                    <form method="post"
-                          action="{{ url_for('admin.transaction_void', tx_id=t.id) }}"
-                          style="display:inline;"
-                          onsubmit="
-                            const reason = prompt('Void manual payment\\n\\nReason (required):');
-                            if (!reason || !reason.trim()) { alert('Void reason is required.'); return false; }
-                            this.querySelector('input[name=void_reason]').value = reason.trim();
-                            return confirm('Are you sure? This will void the payment and recalculate subscription expiry.');
-                          ">
-                      <input type="hidden" name="void_reason" value="">
-                      <button class="btn" type="submit" title="Void this manual payment">Void</button>
-                    </form>
-                  {% elif is_voided %}
-                    <span class="pill pill--warn" title="{{ t.result_desc or 'Voided' }}">Voided</span>
-                  {% else %}
-                    <span class="muted2">—</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% else %}
-              <tr>
-                <td colspan="8" style="padding:0;">
-                  <div class="empty">No transactions yet.</div>
-                </td>
-              </tr>
+                <div class="row-actions-wrap">
+                  <div class="row-actions">
+                    {% if is_manual and is_success and not is_voided %}
+                      <form method="post"
+                            action="{{ url_for('admin.transaction_void', tx_id=t.id) }}"
+                            style="display:inline;"
+                            onsubmit="
+                              const reason = prompt('Void manual payment\n\nReason (required):');
+                              if (!reason || !reason.trim()) { alert('Void reason is required.'); return false; }
+                              this.querySelector('input[name=void_reason]').value = reason.trim();
+                              return confirm('Are you sure? This will void the payment and recalculate subscription expiry.');
+                            ">
+                        <input type="hidden" name="void_reason" value="">
+                        <button class="btn btn-sm" type="submit" title="Void this manual payment">Void</button>
+                      </form>
+                    {% elif is_voided %}
+                      <span class="pill pill--warn" title="{{ t.result_desc or 'Voided' }}">Voided</span>
+                    {% else %}
+                      <span class="muted2">—</span>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
             {% endfor %}
-          </tbody>
-        </table>
+          </div>
+        </div>
+      {% else %}
+        <div class="empty">No transactions yet.</div>
+      {% endif %}
+
+      <div class="tiny-note">
+        Manual payments update the linked subscription and can be voided later with a required reason.
       </div>
     </section>
 

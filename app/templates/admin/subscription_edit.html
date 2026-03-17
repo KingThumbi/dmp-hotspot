@@ -1,0 +1,239 @@
+{% extends "admin/base.html" %}
+{% block title %}Edit Subscription{% endblock %}
+{% block header %}Edit Subscription{% endblock %}
+
+{% block page_subtitle %}
+  <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+    <span class="mono">#{{ sub.id }}</span>
+    <span>•</span>
+    <span>{{ sub.customer.phone }}</span>
+    <span>•</span>
+    <span class="mono">{{ sub.service_type }}</span>
+  </div>
+{% endblock %}
+
+{% block page_actions %}
+  <a class="btn" href="{{ url_for('admin.customer_detail', customer_id=sub.customer_id) }}">← Back</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .wrap{display:flex;flex-direction:column;gap:14px;}
+    .card{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 8px 24px rgba(15,23,42,.04);
+      overflow:hidden;
+    }
+    .card-head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(15,23,42,.03), rgba(15,23,42,0));
+    }
+    .card-title{
+      margin:0;
+      font-size:15px;
+      font-weight:950;
+    }
+    .card-sub{
+      margin-top:5px;
+      color:var(--muted);
+      font-size:12px;
+    }
+    .form-grid{
+      padding:16px;
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:12px;
+    }
+    .fg{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+    .fg.full{grid-column:1 / -1;}
+    .lbl{
+      font-size:11px;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      color:var(--muted);
+    }
+    .field{
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      font:inherit;
+      min-height:40px;
+      outline:none;
+    }
+    .field:focus{
+      border-color:rgba(0,0,128,.22);
+      box-shadow:0 0 0 3px rgba(0,0,128,.06);
+    }
+    .hint{
+      font-size:11px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .actions{
+      padding:0 16px 16px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+    .summary{
+      padding:16px;
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:10px;
+    }
+    .box{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+      background:rgba(248,250,252,.9);
+    }
+    .box-label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      text-transform:uppercase;
+      margin-bottom:5px;
+    }
+    @media (max-width: 760px){
+      .form-grid, .summary{grid-template-columns:1fr;}
+      .fg.full{grid-column:auto;}
+    }
+  </style>
+
+  <div class="wrap">
+
+    <section class="card">
+      <div class="card-head">
+        <h3 class="card-title">Current Subscription State</h3>
+        <div class="card-sub">Review the current package, identity, and timing before making changes.</div>
+      </div>
+
+      <div class="summary">
+        <div class="box">
+          <div class="box-label">Customer</div>
+          <div>{{ sub.customer.phone }}</div>
+          <div class="mono">{{ sub.customer.account_number or "-" }}</div>
+        </div>
+        <div class="box">
+          <div class="box-label">Current Package</div>
+          <div class="mono">{{ sub.package.code if sub.package else sub.package_id }}</div>
+          <div>{{ sub.status }}</div>
+        </div>
+        <div class="box">
+          <div class="box-label">Current Identity</div>
+          <div class="mono">{{ sub.identity() or "-" }}</div>
+          <div>{{ sub.service_type }}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3 class="card-title">Manual Edit</h3>
+        <div class="card-sub">Use this for upgrades, downgrades, corrections, and admin adjustments.</div>
+      </div>
+
+      <form method="post" action="{{ url_for('admin.subscription_edit_post', sub_id=sub.id) }}">
+        <div class="form-grid">
+          <div class="fg">
+            <label class="lbl" for="package_id">Current package now</label>
+            <select class="field" id="package_id" name="package_id" required>
+              {% for p in packages %}
+                <option value="{{ p.id }}" {% if p.id == sub.package_id %}selected{% endif %}>
+                  {{ p.code }}{% if p.name %} — {{ p.name }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="hint">This changes the active package on this subscription.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="pending_package_id">Pending package at renewal</label>
+            <select class="field" id="pending_package_id" name="pending_package_id">
+              <option value="">None</option>
+              {% for p in packages %}
+                <option value="{{ p.id }}" {% if sub.pending_package_id and p.id == sub.pending_package_id %}selected{% endif %}>
+                  {{ p.code }}{% if p.name %} — {{ p.name }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="hint">Useful for scheduled downgrades at next renewal.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="status">Status</label>
+            <select class="field" id="status" name="status" required>
+              <option value="pending" {% if sub.status == 'pending' %}selected{% endif %}>pending</option>
+              <option value="active" {% if sub.status == 'active' %}selected{% endif %}>active</option>
+              <option value="expired" {% if sub.status == 'expired' %}selected{% endif %}>expired</option>
+            </select>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="identity">Identity</label>
+            <input
+              class="field mono"
+              id="identity"
+              name="identity"
+              value="{{ sub.identity() or '' }}"
+              placeholder="{% if sub.service_type == 'pppoe' %}PPPoE username{% else %}Hotspot username{% endif %}"
+            />
+            <div class="hint">Edit the PPPoE or hotspot identity if required.</div>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="expiry_mode">Expiry handling</label>
+            <select class="field" id="expiry_mode" name="expiry_mode" required>
+              <option value="keep">Keep current expiry</option>
+              <option value="recalculate_now">Recalculate from now</option>
+              <option value="custom">Set custom expiry</option>
+            </select>
+          </div>
+
+          <div class="fg">
+            <label class="lbl" for="expires_at_custom">Custom expiry (optional, EAT)</label>
+            <input
+              class="field"
+              id="expires_at_custom"
+              name="expires_at_custom"
+              type="datetime-local"
+              step="60"
+            />
+            <div class="hint">Only used when “Set custom expiry” is selected.</div>
+          </div>
+
+          <div class="fg full">
+            <label class="lbl" for="reason">Reason</label>
+            <input
+              class="field"
+              id="reason"
+              name="reason"
+              required
+              placeholder="e.g. Customer upgraded from 3M to 7M after top-up"
+            />
+            <div class="hint">Required for staff accountability and future audit logging.</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <a class="btn" href="{{ url_for('admin.customer_detail', customer_id=sub.customer_id) }}">Cancel</a>
+          <button class="btn btn-primary" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}
