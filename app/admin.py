@@ -2656,6 +2656,15 @@ def subscription_edit_post(sub_id):
     sub.pending_package_id = pending_package_id
     sub.status = status_raw
 
+    #  FIX: prevent same package in both current and pending
+    if sub.pending_package_id and sub.package_id == sub.pending_package_id:
+        sub.pending_package_id = None
+        # If admin selected a new package AND no pending change → treat as immediate change
+    if pending_package_id is None and sub.package_id != old_package_id:
+        # This is an immediate upgrade/downgrade
+        # (you can later hook router sync here)
+        pass
+    
     if sub.service_type == "pppoe":
         if identity_raw:
             sub.pppoe_username = identity_raw

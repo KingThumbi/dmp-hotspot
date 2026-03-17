@@ -3,12 +3,16 @@
 {% block header %}Edit Subscription{% endblock %}
 
 {% block page_subtitle %}
-  <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+  <div class="sub-edit-subtitle">
     <span class="mono">#{{ sub.id }}</span>
-    <span>•</span>
-    <span>{{ sub.customer.phone }}</span>
-    <span>•</span>
-    <span class="mono">{{ sub.service_type }}</span>
+    <span class="sep">•</span>
+    <span class="mono">{{ sub.customer.phone }}</span>
+    <span class="sep">•</span>
+    <span>{{ sub.service_type }}</span>
+    {% if sub.customer.account_number %}
+      <span class="sep">•</span>
+      <span class="mono">Acc: {{ sub.customer.account_number }}</span>
+    {% endif %}
   </div>
 {% endblock %}
 
@@ -18,7 +22,30 @@
 
 {% block content %}
   <style>
-    .wrap{display:flex;flex-direction:column;gap:14px;}
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .sub-edit-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+
+    .sub-edit-subtitle{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .sub-edit-subtitle .sep{
+      opacity:.55;
+    }
+
     .card{
       background:#fff;
       border:1px solid var(--border);
@@ -26,41 +53,132 @@
       box-shadow:0 8px 24px rgba(15,23,42,.04);
       overflow:hidden;
     }
+
     .card-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
       padding:14px 16px;
       border-bottom:1px solid var(--border);
       background:linear-gradient(180deg, rgba(15,23,42,.03), rgba(15,23,42,0));
     }
+
     .card-title{
       margin:0;
       font-size:15px;
       font-weight:950;
+      line-height:1.2;
+      letter-spacing:.2px;
     }
+
     .card-sub{
       margin-top:5px;
       color:var(--muted);
       font-size:12px;
+      line-height:1.45;
+      max-width:72ch;
     }
+
+    .summary{
+      padding:16px;
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:10px;
+    }
+
+    .box{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:linear-gradient(180deg, rgba(248,250,252,.92), rgba(255,255,255,1));
+      min-width:0;
+    }
+
+    .box-label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      margin-bottom:6px;
+      line-height:1.2;
+    }
+
+    .box-value{
+      font-size:13px;
+      line-height:1.45;
+      overflow-wrap:anywhere;
+    }
+
+    .box-value.strong{
+      font-weight:900;
+      font-size:14px;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(15,23,42,.03);
+      font-size:11px;
+      font-weight:900;
+      line-height:1.1;
+      white-space:nowrap;
+      width:max-content;
+      max-width:100%;
+    }
+
+    .pill--ok{
+      border-color:rgba(16,185,129,.35);
+      background:rgba(16,185,129,.10);
+    }
+
+    .pill--warn{
+      border-color:rgba(245,158,11,.35);
+      background:rgba(245,158,11,.10);
+    }
+
+    .pill--bad{
+      border-color:rgba(239,68,68,.35);
+      background:rgba(239,68,68,.10);
+    }
+
+    .pill--info{
+      border-color:rgba(0,0,128,.22);
+      background:rgba(0,0,128,.06);
+    }
+
     .form-grid{
       padding:16px;
       display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
+      grid-template-columns:repeat(2, minmax(0, 1fr));
       gap:12px;
     }
+
     .fg{
       display:flex;
       flex-direction:column;
       gap:6px;
       min-width:0;
     }
-    .fg.full{grid-column:1 / -1;}
+
+    .fg.full{
+      grid-column:1 / -1;
+    }
+
     .lbl{
       font-size:11px;
       font-weight:900;
       text-transform:uppercase;
       letter-spacing:.04em;
       color:var(--muted);
+      line-height:1.2;
     }
+
     .field{
       padding:10px 12px;
       border:1px solid var(--border);
@@ -69,88 +187,145 @@
       font:inherit;
       min-height:40px;
       outline:none;
+      width:100%;
     }
+
     .field:focus{
       border-color:rgba(0,0,128,.22);
       box-shadow:0 0 0 3px rgba(0,0,128,.06);
     }
+
     .hint{
       font-size:11px;
       color:var(--muted);
       line-height:1.35;
     }
+
+    .notice{
+      margin:0 16px 16px;
+      padding:12px 14px;
+      border:1px solid rgba(245,158,11,.28);
+      background:rgba(245,158,11,.08);
+      border-radius:14px;
+      font-size:12px;
+      line-height:1.5;
+      color:var(--text);
+    }
+
+    .notice strong{
+      font-weight:900;
+    }
+
     .actions{
       padding:0 16px 16px;
       display:flex;
       gap:8px;
       flex-wrap:wrap;
+      align-items:center;
     }
-    .mono{
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:12px;
+
+    @media (max-width: 900px){
+      .summary{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
     }
-    .summary{
-      padding:16px;
-      display:grid;
-      grid-template-columns:repeat(3, minmax(0,1fr));
-      gap:10px;
-    }
-    .box{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:12px;
-      background:rgba(248,250,252,.9);
-    }
-    .box-label{
-      font-size:11px;
-      font-weight:900;
-      color:var(--muted);
-      text-transform:uppercase;
-      margin-bottom:5px;
-    }
+
     @media (max-width: 760px){
-      .form-grid, .summary{grid-template-columns:1fr;}
-      .fg.full{grid-column:auto;}
+      .summary,
+      .form-grid{
+        grid-template-columns:1fr;
+      }
+
+      .fg.full{
+        grid-column:auto;
+      }
+
+      .card-head,
+      .summary,
+      .form-grid,
+      .actions{
+        padding-left:12px;
+        padding-right:12px;
+      }
+
+      .notice{
+        margin-left:12px;
+        margin-right:12px;
+      }
     }
   </style>
 
-  <div class="wrap">
+  {% set identity_value = sub.identity() or "-" %}
+  {% set package_value = sub.package.code if sub.package else sub.package_id %}
+  {% set st = (sub.status or '')|lower %}
+
+  <div class="sub-edit-wrap">
 
     <section class="card">
       <div class="card-head">
-        <h3 class="card-title">Current Subscription State</h3>
-        <div class="card-sub">Review the current package, identity, and timing before making changes.</div>
+        <div>
+          <h3 class="card-title">Current Subscription State</h3>
+          <div class="card-sub">
+            Review the current customer, package, identity, and timing before applying any changes.
+          </div>
+        </div>
       </div>
 
       <div class="summary">
         <div class="box">
           <div class="box-label">Customer</div>
-          <div>{{ sub.customer.phone }}</div>
-          <div class="mono">{{ sub.customer.account_number or "-" }}</div>
+          <div class="box-value strong">{{ sub.customer.phone }}</div>
+          <div class="box-value mono">{{ sub.customer.account_number or "-" }}</div>
         </div>
+
         <div class="box">
           <div class="box-label">Current Package</div>
-          <div class="mono">{{ sub.package.code if sub.package else sub.package_id }}</div>
-          <div>{{ sub.status }}</div>
+          <div class="box-value strong mono">{{ package_value }}</div>
+          <div class="box-value">
+            {% if 'active' in st %}
+              <span class="pill pill--ok">{{ sub.status }}</span>
+            {% elif 'expired' in st %}
+              <span class="pill pill--bad">{{ sub.status }}</span>
+            {% else %}
+              <span class="pill pill--warn">{{ sub.status }}</span>
+            {% endif %}
+          </div>
         </div>
+
         <div class="box">
-          <div class="box-label">Current Identity</div>
-          <div class="mono">{{ sub.identity() or "-" }}</div>
-          <div>{{ sub.service_type }}</div>
+          <div class="box-label">Identity</div>
+          <div class="box-value strong mono">{{ identity_value }}</div>
+          <div class="box-value">{{ sub.service_type }}</div>
+        </div>
+
+        <div class="box">
+          <div class="box-label">Timing</div>
+          <div class="box-value">Starts: {{ sub.starts_at or "-" }}</div>
+          <div class="box-value">Expires: {{ sub.expires_at or "-" }}</div>
         </div>
       </div>
     </section>
 
     <section class="card">
       <div class="card-head">
-        <h3 class="card-title">Manual Edit</h3>
-        <div class="card-sub">Use this for upgrades, downgrades, corrections, and admin adjustments.</div>
+        <div>
+          <h3 class="card-title">Manual Edit</h3>
+          <div class="card-sub">
+            Use this for upgrades, downgrades, corrections, and admin adjustments. Immediate changes belong in the
+            current package field. Future changes belong in the next-renewal field.
+          </div>
+        </div>
+      </div>
+
+      <div class="notice">
+        <strong>Important:</strong> for a paid upgrade that should start immediately, change
+        <strong>Apply package immediately</strong> and leave <strong>Schedule for next renewal</strong> empty.
       </div>
 
       <form method="post" action="{{ url_for('admin.subscription_edit_post', sub_id=sub.id) }}">
         <div class="form-grid">
           <div class="fg">
-            <label class="lbl" for="package_id">Current package now</label>
+            <label class="lbl" for="package_id">Apply package immediately</label>
             <select class="field" id="package_id" name="package_id" required>
               {% for p in packages %}
                 <option value="{{ p.id }}" {% if p.id == sub.package_id %}selected{% endif %}>
@@ -158,11 +333,13 @@
                 </option>
               {% endfor %}
             </select>
-            <div class="hint">This changes the active package on this subscription.</div>
+            <div class="hint">
+              This changes the active package on this subscription right now.
+            </div>
           </div>
 
           <div class="fg">
-            <label class="lbl" for="pending_package_id">Pending package at renewal</label>
+            <label class="lbl" for="pending_package_id">Schedule for next renewal</label>
             <select class="field" id="pending_package_id" name="pending_package_id">
               <option value="">None</option>
               {% for p in packages %}
@@ -171,20 +348,27 @@
                 </option>
               {% endfor %}
             </select>
-            <div class="hint">Useful for scheduled downgrades at next renewal.</div>
+            <div class="hint">
+              Use this for a downgrade or planned change that should only apply at renewal.
+            </div>
           </div>
 
           <div class="fg">
-            <label class="lbl" for="status">Status</label>
+            <label class="lbl" for="status">Subscription status</label>
             <select class="field" id="status" name="status" required>
               <option value="pending" {% if sub.status == 'pending' %}selected{% endif %}>pending</option>
               <option value="active" {% if sub.status == 'active' %}selected{% endif %}>active</option>
               <option value="expired" {% if sub.status == 'expired' %}selected{% endif %}>expired</option>
             </select>
+            <div class="hint">
+              Choose the operational state that should apply after saving.
+            </div>
           </div>
 
           <div class="fg">
-            <label class="lbl" for="identity">Identity</label>
+            <label class="lbl" for="identity">
+              {% if sub.service_type == 'pppoe' %}PPPoE username{% else %}Hotspot username{% endif %}
+            </label>
             <input
               class="field mono"
               id="identity"
@@ -192,7 +376,9 @@
               value="{{ sub.identity() or '' }}"
               placeholder="{% if sub.service_type == 'pppoe' %}PPPoE username{% else %}Hotspot username{% endif %}"
             />
-            <div class="hint">Edit the PPPoE or hotspot identity if required.</div>
+            <div class="hint">
+              Edit the service identity only when necessary.
+            </div>
           </div>
 
           <div class="fg">
@@ -202,6 +388,9 @@
               <option value="recalculate_now">Recalculate from now</option>
               <option value="custom">Set custom expiry</option>
             </select>
+            <div class="hint">
+              Choose how expiry should behave after the change.
+            </div>
           </div>
 
           <div class="fg">
@@ -213,7 +402,9 @@
               type="datetime-local"
               step="60"
             />
-            <div class="hint">Only used when “Set custom expiry” is selected.</div>
+            <div class="hint">
+              Only used when <strong>Set custom expiry</strong> is selected.
+            </div>
           </div>
 
           <div class="fg full">
@@ -225,7 +416,9 @@
               required
               placeholder="e.g. Customer upgraded from 3M to 7M after top-up"
             />
-            <div class="hint">Required for staff accountability and future audit logging.</div>
+            <div class="hint">
+              Required for accountability and audit history.
+            </div>
           </div>
         </div>
 
