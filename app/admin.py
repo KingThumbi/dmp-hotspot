@@ -894,8 +894,12 @@ def customers():
 
 
 @admin.get("/customers/<int:customer_id>")
+@roles_required("support", "admin")
 def customer_detail(customer_id):
     customer = db.session.get(Customer, customer_id)
+    if not customer:
+        flash("Customer not found.", "error")
+        return redirect(url_for("admin.customers"))
 
     subs = (
         Subscription.query
@@ -911,10 +915,11 @@ def customer_detail(customer_id):
         .all()
     )
 
-    tickets = (
-        Ticket.query
+    change_logs = (
+        SubscriptionChangeLog.query
         .filter_by(customer_id=customer.id)
-        .order_by(Ticket.created_at.desc())
+        .order_by(SubscriptionChangeLog.created_at.desc())
+        .limit(20)
         .all()
     )
 
@@ -923,8 +928,7 @@ def customer_detail(customer_id):
         customer=customer,
         subs=subs,
         txs=txs,
-        tickets=tickets,
-        sub_identity=sub_identity,
+        change_logs=change_logs,
     )
 
 @admin.post("/customers/<int:customer_id>/payments/manual")

@@ -946,5 +946,75 @@
       </div>
     </section>
 
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Change History</h3>
+          <div class="panel-subtitle">
+            <span>Manual subscription edits recorded for this customer</span>
+            <span>•</span>
+            <span class="mono">{{ change_logs|length if change_logs is defined else 0 }} shown</span>
+          </div>
+        </div>
+      </div>
+
+      {% if change_logs %}
+        <div class="table-wrap">
+          <div class="table-list">
+            {% for log in change_logs %}
+              <div class="row-card">
+                <div class="row-main">
+                  <div class="row-title">
+                    <span class="pill pill--info">Subscription #{{ log.subscription_id }}</span>
+                    <span class="row-title-text">{{ log.reason }}</span>
+                  </div>
+
+                  <div class="row-sub">
+                    <span>Changed</span>
+                    <span>{{ log.created_at }}</span>
+                    <span>•</span>
+                    <span>Admin ID</span>
+                    <span class="mono">{{ log.changed_by_admin_id or "-" }}</span>
+                  </div>
+                </div>
+
+                <div class="row-block">
+                  <div class="row-label">Package</div>
+                  <div class="row-value mono">
+                    {{ log.old_package_id or "-" }} → {{ log.new_package_id or "-" }}
+                  </div>
+                  <div class="row-value muted2 mono">
+                    Pending: {{ log.old_pending_package_id or "-" }} → {{ log.new_pending_package_id or "-" }}
+                  </div>
+                </div>
+
+                <div class="row-block">
+                  <div class="row-label">Status / Identity</div>
+                  <div class="row-value">
+                    {{ log.old_status or "-" }} → {{ log.new_status or "-" }}
+                  </div>
+                  <div class="row-value muted2 mono">
+                    {{ log.old_identity or "-" }} → {{ log.new_identity or "-" }}
+                  </div>
+                </div>
+
+                <div class="row-actions-wrap">
+                  <div class="row-block">
+                    <div class="row-label">Timing</div>
+                    <div class="row-value muted2">
+                      <div>Starts: {{ log.old_starts_at or "-" }} → {{ log.new_starts_at or "-" }}</div>
+                      <div>Expires: {{ log.old_expires_at or "-" }} → {{ log.new_expires_at or "-" }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% else %}
+        <div class="empty">No subscription change history yet.</div>
+      {% endif %}
+    </section>
+
   </div>
 {% endblock %}
