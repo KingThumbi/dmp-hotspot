@@ -1,7 +1,6 @@
 # ======================================================
 # Python
 # ======================================================
-
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,66 +8,48 @@ __pycache__/
 *.so
 *.egg-info/
 .eggs/
-dist/
 build/
+dist/
 pip-wheel-metadata/
 
 # Virtual environments
 venv/
 .venv/
-ENV/
 env/
+ENV/
 
 # ======================================================
-# Flask
+# Flask / App Runtime
 # ======================================================
-
 instance/
-*.log
-*.pid
 flask_session/
+*.pid
 
 # ======================================================
-# Environment Variables (CRITICAL)
+# Environment Variables
 # ======================================================
-
 .env
 .env.*
-!.env.example   # allow committing example template
+!.env.example
 
 # ======================================================
-# Database
+# Databases / Dumps
 # ======================================================
-
 *.sqlite3
 *.db
 *.db-journal
-
-# Local PostgreSQL dumps
 *.sql
 *.dump
-
-# If you want to keep seed files, remove this line:
-# packages_seed.sql
-
-# ======================================================
-# Alembic
-# ======================================================
-
-# (Keep migrations tracked — do NOT ignore migrations folder)
-# alembic/versions/*.pyc  (covered by pycache rule)
 
 # ======================================================
 # Logs
 # ======================================================
-
 logs/
 *.log
 
 # ======================================================
-# Testing / Coverage
+# Testing / Coverage / Cache
 # ======================================================
-
 .coverage
 .coverage.*
 htmlcov/
@@ -79,7 +60,6 @@ htmlcov/
 # ======================================================
 # OS Files
 # ======================================================
-
 .DS_Store
 Thumbs.db
 *.swp
@@ -88,26 +68,43 @@ Thumbs.db
 # ======================================================
 # IDE / Editors
 # ======================================================
-
 .vscode/
 .idea/
 *.iml
 
 # ======================================================
-# Frontend (future-proof)
+# Frontend
 # ======================================================
-
 node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-lock.yaml
+
+# ======================================================
+# Deployment
+# ======================================================
+.render/
+
+# ======================================================
+# Uploads / Sensitive Generated Files
+# ======================================================
+uploads/
+media/
+tx_for_new_pppoe.csv
+
+# ======================================================
+# Network / MikroTik Backups / Exports
+# ======================================================
+*.rsc
+*.backup
+*.export
 
 # ======================================================
 # Misc
 # ======================================================
-
 *.bak
 *.tmp
 *.orig
-tx_for_new_pppoe.csv
