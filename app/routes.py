@@ -1147,8 +1147,7 @@ def public_lead_coverage():
         estate=estate or None,
         message=message or None,
         source=source,
-        created_at=created_at,
-        handled=False,
+        created_at=created_at,        
     )
 
     db.session.add(lead)
@@ -1192,7 +1191,6 @@ def public_lead_quote():
         message=message or None,
         source=source,
         created_at=created_at,
-        handled=False,
     )
 
     db.session.add(lead)
@@ -1220,3 +1218,31 @@ def public_leads_recent():
         limit 20
     """)).mappings().all()
     return jsonify({"ok": True, "items": [dict(r) for r in rows]})
+
+@main.post("/api/public/leads/support")
+def public_lead_support():
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    estate = (data.get("estate") or "").strip()
+    message = (data.get("message") or "").strip()
+    source = (data.get("source") or "website").strip()
+
+    if not name or not phone or not message:
+        return jsonify({"ok": False, "error": "Name, phone and message are required."}), 400
+
+    lead = PublicLead(
+        kind="support",   # 🔥 important
+        name=name,
+        phone=phone,
+        estate=estate or None,
+        message=message or None,
+        source=source,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    db.session.add(lead)
+    db.session.commit()
+
+    return jsonify({"ok": True, "id": lead.id})

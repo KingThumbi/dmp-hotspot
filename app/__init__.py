@@ -82,7 +82,7 @@ def create_app() -> Flask:
     CORS(
         app,
         resources={r"/api/*": {"origins": _cors_allowed_origins()}},
-        supports_credentials=False,
+        supports_credentials=True,
         max_age=600,
     )
 
@@ -121,11 +121,14 @@ def create_app() -> Flask:
     from .admin import admin as admin_bp
     from .routes import main as main_bp
     from .mpesa import mpesa_bp
-
+    from .api_public import api_public_bp
+    from .api_admin import api_admin_bp
+    
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(mpesa_bp)  # /api/mpesa/*
-
+    app.register_blueprint(api_public_bp)
+    app.register_blueprint(api_admin_bp)
     # ---------------------------------------------------------
     # 9) Register CLI module commands (router/audit/resync/etc.)
     # ---------------------------------------------------------
