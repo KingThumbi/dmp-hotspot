@@ -54,6 +54,7 @@ def _cors_allowed_origins() -> list[str]:
         "http://localhost:5173",
         "https://dmpolinconnect.co.ke",
         "https://www.dmpolinconnect.co.ke",
+        "https://dmp-hotspot-1.onrender.com"
         # Add your frontend hosting URL later (Render/Vercel/CF Pages/etc.)
     ]
 
