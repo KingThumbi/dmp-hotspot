@@ -188,15 +188,77 @@ def _parse_account_identifier(identifier: str) -> Optional[int]:
     return int(m.group(1))
 
 
-def get_or_create_customer(phone_norm: str, account_number: str | None = None) -> Customer:
-    """Customer keyed by phone (treated as unique)."""
+def _clean_full_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = " ".join(str(value).strip().split())
+    return cleaned or None
+
+
+def _split_full_name(full_name: str | None) -> tuple[str | None, str | None]:
+    """
+    Best-effort split for models that also store first_name / last_name.
+    """
+    if not full_name:
+        return None, None
+
+    parts = [p for p in full_name.split(" ") if p]
+    if not parts:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+
+    return parts[0], " ".join(parts[1:])
+
+
+def get_or_create_customer(
+    phone_norm: str,
+    account_number: str | None = None,
+    full_name: str | None = None,
+) -> Customer:
+    """
+    Customer keyed by phone (treated as unique).
+
+    Behavior:
+    - Reuses existing customer by phone
+    - Backfills account_number if missing
+    - Backfills full_name if missing
+    - Optionally updates first_name / last_name when those fields exist
+    """
+    clean_name = _clean_full_name(full_name)
+
     cust = Customer.query.filter_by(phone=phone_norm).first()
     if cust:
-        if not cust.account_number and account_number:
+        if account_number and not getattr(cust, "account_number", None):
             cust.account_number = account_number
+
+        if clean_name and not getattr(cust, "full_name", None):
+            if hasattr(cust, "full_name"):
+                cust.full_name = clean_name
+
+            first_name, last_name = _split_full_name(clean_name)
+
+            if hasattr(cust, "first_name") and not getattr(cust, "first_name", None):
+                cust.first_name = first_name
+            if hasattr(cust, "last_name") and not getattr(cust, "last_name", None):
+                cust.last_name = last_name
+
         return cust
 
-    cust = Customer(phone=phone_norm, account_number=account_number)
+    cust = Customer(
+        phone=phone_norm,
+        account_number=account_number,
+    )
+
+    if clean_name and hasattr(cust, "full_name"):
+        cust.full_name = clean_name
+
+    first_name, last_name = _split_full_name(clean_name)
+    if hasattr(cust, "first_name"):
+        cust.first_name = first_name
+    if hasattr(cust, "last_name"):
+        cust.last_name = last_name
+
     db.session.add(cust)
     db.session.flush()
     return cust
@@ -733,8 +795,11 @@ def home_internet_request():
         flash("Please select a valid Home Internet plan.", "error")
         return redirect(url_for("main.home_internet_page"))
 
-    customer = get_or_create_customer(phone)
-
+    customer = get_or_create_customer(
+        phone,
+        full_name=name,
+    )
+    
     creator = (
         AdminUser.query.filter_by(is_active=True, is_superadmin=True).order_by(AdminUser.id.asc()).first()
         or AdminUser.query.filter_by(is_active=True).order_by(AdminUser.id.asc()).first()

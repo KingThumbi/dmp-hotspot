@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any
 
@@ -7,7 +8,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 from sqlalchemy import or_
 
-from .models import Customer, PublicLead, Subscription, Ticket, Transaction
+from .models import db, Customer, PublicLead, Subscription, Ticket, Transaction
 
 api_admin_bp = Blueprint("api_admin", __name__)
 
@@ -95,6 +96,10 @@ def _iso(value) -> str | None:
         return None
 
 
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+
 def _display_name(obj: Any) -> str | None:
     if obj is None:
         return None
@@ -132,6 +137,10 @@ def _count_active_subscriptions() -> int:
             return _safe_count(
                 Subscription.query.filter(Subscription.status == "active")
             )
+        if hasattr(Subscription, "is_active"):
+            return _safe_count(
+                Subscription.query.filter(Subscription.is_active.is_(True))
+            )
         return _safe_count(Subscription.query)
     except Exception:
         return 0
@@ -154,7 +163,9 @@ def _count_open_tickets() -> int:
     try:
         return _safe_count(
             Ticket.query.filter(
-                Ticket.status.in_(["open", "assigned", "in_progress", "waiting_customer"])
+                Ticket.status.in_(
+                    ["open", "assigned", "in_progress", "waiting_customer"]
+                )
             )
         )
     except Exception:
@@ -175,7 +186,9 @@ def _count_unhandled_public_leads() -> int:
     """
     try:
         if hasattr(PublicLead, "handled"):
-            return _safe_count(PublicLead.query.filter(PublicLead.handled.is_(False)))
+            return _safe_count(
+                PublicLead.query.filter(PublicLead.handled.is_(False))
+            )
         return _count_public_leads()
     except Exception:
         return _count_public_leads()
@@ -296,12 +309,12 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
 
     package_name = None
     if package is not None:
-        package_name = (
-            getattr(package, "name", None)
-            or getattr(package, "code", None)
-        )
+        package_name = getattr(package, "name", None) or getattr(package, "code", None)
 
+    # Prefer subscription-linked location first
     location_name = None
+    location_id = getattr(subscription, "location_id", None) if hasattr(subscription, "location_id") else None
+
     if location is not None:
         location_name = (
             getattr(location, "name", None)
@@ -309,24 +322,57 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
             or getattr(location, "estate", None)
         )
 
+    # Fallback: derive from customer's primary/first location
+    if not location_name and customer is not None:
+        customer_locations = None
+
+        if hasattr(customer, "locations"):
+            customer_locations = getattr(customer, "locations", None)
+        elif hasattr(customer, "customer_locations"):
+            customer_locations = getattr(customer, "customer_locations", None)
+
+        if customer_locations:
+            chosen_location = None
+
+            for loc in customer_locations:
+                if getattr(loc, "is_primary", False):
+                    chosen_location = loc
+                    break
+
+            if chosen_location is None:
+                chosen_location = customer_locations[0]
+
+            if chosen_location is not None:
+                if not location_id:
+                    location_id = getattr(chosen_location, "id", None)
+
+                location_name = (
+                    getattr(chosen_location, "name", None)
+                    or getattr(chosen_location, "label", None)
+                    or getattr(chosen_location, "estate", None)
+                    or getattr(chosen_location, "address", None)
+                )
+
     return {
         "id": getattr(subscription, "id", None),
         "customer_id": getattr(subscription, "customer_id", None),
         "customer_name": _display_name(customer),
+        "account_number": getattr(customer, "account_number", None) if customer is not None else None,
         "package_id": getattr(subscription, "package_id", None) if hasattr(subscription, "package_id") else None,
         "package_name": package_name,
-        "location_id": getattr(subscription, "location_id", None) if hasattr(subscription, "location_id") else None,
+        "location_id": location_id,
         "location_name": location_name,
         "status": getattr(subscription, "status", None) if hasattr(subscription, "status") else None,
         "service_type": getattr(subscription, "service_type", None) if hasattr(subscription, "service_type") else None,
+        "is_active": getattr(subscription, "is_active", None) if hasattr(subscription, "is_active") else None,
         "starts_at": _iso(getattr(subscription, "starts_at", None)) if hasattr(subscription, "starts_at") else None,
         "ends_at": _iso(getattr(subscription, "ends_at", None)) if hasattr(subscription, "ends_at") else None,
+        "started_at": _iso(getattr(subscription, "started_at", None)) if hasattr(subscription, "started_at") else None,
         "expires_at": _iso(getattr(subscription, "expires_at", None)) if hasattr(subscription, "expires_at") else None,
         "next_due_date": _iso(getattr(subscription, "next_due_date", None)) if hasattr(subscription, "next_due_date") else None,
         "created_at": _iso(getattr(subscription, "created_at", None)),
         "updated_at": _iso(getattr(subscription, "updated_at", None)),
     }
-
 
 def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
     customer = getattr(tx, "customer", None)
@@ -334,10 +380,7 @@ def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
 
     package_name = None
     if package is not None:
-        package_name = (
-            getattr(package, "name", None)
-            or getattr(package, "code", None)
-        )
+        package_name = getattr(package, "name", None) or getattr(package, "code", None)
 
     result_code = getattr(tx, "result_code", None)
     tx_type = "manual" if (result_code or "").upper() == "MANUAL" else "mpesa"
@@ -357,6 +400,120 @@ def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
         "result_code": result_code,
         "result_desc": getattr(tx, "result_desc", None),
         "created_at": _iso(getattr(tx, "created_at", None)),
+    }
+
+
+# =========================================================
+# Customer service-state helpers
+# =========================================================
+
+def _subscriptions_for_customer_query(customer_id: int):
+    query = Subscription.query.filter(Subscription.customer_id == customer_id)
+
+    if hasattr(Subscription, "created_at"):
+        return query.order_by(Subscription.created_at.desc())
+
+    return query.order_by(Subscription.id.desc())
+
+
+def _set_customer_service_state(
+    customer: Customer,
+    activate: bool,
+    reason: str | None = None,
+) -> list[Subscription]:
+    now = _now_utc()
+
+    if hasattr(customer, "is_active"):
+        customer.is_active = activate
+
+    if hasattr(customer, "updated_at"):
+        customer.updated_at = now
+
+    subscriptions = _subscriptions_for_customer_query(customer.id).all()
+
+    for sub in subscriptions:
+        if hasattr(sub, "is_active"):
+            sub.is_active = activate
+
+        if hasattr(sub, "status"):
+            current_status = (getattr(sub, "status", None) or "").strip().lower()
+
+            if activate:
+                if current_status in {"", "inactive", "suspended", "active"}:
+                    sub.status = "active"
+            else:
+                if current_status not in {"cancelled"}:
+                    sub.status = "suspended"
+
+        if hasattr(sub, "updated_at"):
+            sub.updated_at = now
+
+        if not activate and hasattr(sub, "suspended_at"):
+            sub.suspended_at = now
+
+        if activate and hasattr(sub, "reconnected_at"):
+            sub.reconnected_at = now
+
+        if reason:
+            if not activate and hasattr(sub, "suspension_reason"):
+                sub.suspension_reason = reason
+            if activate and hasattr(sub, "reconnection_note"):
+                sub.reconnection_note = reason
+
+    return subscriptions
+
+
+def _sync_customer_to_mikrotik_later(customer: Customer, activate: bool):
+    """
+    Future integration point.
+
+    Planned later:
+    - PPPoE: disable/enable secret
+    - Hotspot: disable/enable user
+    - Disconnect active sessions immediately on suspend
+    """
+    pass
+
+
+def _customer_detail_payload(customer: Customer) -> dict[str, Any]:
+    subscriptions = []
+    if hasattr(customer, "subscriptions"):
+        try:
+            subscriptions = [
+                _serialize_subscription(item)
+                for item in (customer.subscriptions or [])
+            ]
+        except Exception:
+            subscriptions = []
+
+    tickets = []
+    if hasattr(customer, "tickets"):
+        try:
+            tickets = [
+                _serialize_customer_ticket(item)
+                for item in (customer.tickets or [])
+            ]
+        except Exception:
+            tickets = []
+
+    locations = []
+    for rel_name in ("locations", "customer_locations"):
+        if hasattr(customer, rel_name):
+            try:
+                rel_items = getattr(customer, rel_name) or []
+                locations = [
+                    _serialize_customer_location(item)
+                    for item in rel_items
+                ]
+                break
+            except Exception:
+                locations = []
+
+    return {
+        "customer": _serialize_customer(customer),
+        "subscriptions": subscriptions,
+        "tickets": tickets,
+        "locations": locations,
     }
 
 
@@ -555,6 +712,7 @@ def admin_customers():
 
     if q:
         filters = []
+
         if hasattr(Customer, "full_name"):
             filters.append(Customer.full_name.ilike(f"%{q}%"))
         if hasattr(Customer, "first_name"):
@@ -603,39 +761,84 @@ def admin_customer_detail(customer_id: int):
     if not customer:
         return _json_error("Customer not found.", 404)
 
-    subscriptions = []
-    if hasattr(customer, "subscriptions"):
-        try:
-            subscriptions = [_serialize_subscription(item) for item in (customer.subscriptions or [])]
-        except Exception:
-            subscriptions = []
+    return jsonify(
+        {
+            "ok": True,
+            "data": _customer_detail_payload(customer),
+        }
+    )
 
-    tickets = []
-    if hasattr(customer, "tickets"):
-        try:
-            tickets = [_serialize_customer_ticket(item) for item in (customer.tickets or [])]
-        except Exception:
-            tickets = []
 
-    locations = []
-    for rel_name in ("locations", "customer_locations"):
-        if hasattr(customer, rel_name):
-            try:
-                rel_items = getattr(customer, rel_name) or []
-                locations = [_serialize_customer_location(item) for item in rel_items]
-                break
-            except Exception:
-                locations = []
+@api_admin_bp.post("/api/admin/customers/<int:customer_id>/suspend")
+@admin_api_required
+def admin_customer_suspend(customer_id: int):
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return _json_error("Customer not found.", 404)
+
+    data = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "Suspended by admin").strip()
+
+    if hasattr(customer, "is_active") and customer.is_active is False:
+        return jsonify(
+            {
+                "ok": True,
+                "message": f"{_display_name(customer) or 'Customer'} is already suspended.",
+                "data": _customer_detail_payload(customer),
+            }
+        )
+
+    _set_customer_service_state(customer, activate=False, reason=reason)
+
+    # Future network enforcement hook
+    # _sync_customer_to_mikrotik_later(customer, activate=False)
+
+    db.session.commit()
+
+    customer = Customer.query.get(customer_id)
 
     return jsonify(
         {
             "ok": True,
-            "data": {
-                "customer": _serialize_customer(customer),
-                "subscriptions": subscriptions,
-                "tickets": tickets,
-                "locations": locations,
-            },
+            "message": f"{_display_name(customer) or 'Customer'} suspended successfully.",
+            "data": _customer_detail_payload(customer),
+        }
+    )
+
+
+@api_admin_bp.post("/api/admin/customers/<int:customer_id>/reconnect")
+@admin_api_required
+def admin_customer_reconnect(customer_id: int):
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return _json_error("Customer not found.", 404)
+
+    data = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "Reconnected by admin").strip()
+
+    if hasattr(customer, "is_active") and customer.is_active is True:
+        return jsonify(
+            {
+                "ok": True,
+                "message": f"{_display_name(customer) or 'Customer'} is already active.",
+                "data": _customer_detail_payload(customer),
+            }
+        )
+
+    _set_customer_service_state(customer, activate=True, reason=reason)
+
+    # Future network enforcement hook
+    # _sync_customer_to_mikrotik_later(customer, activate=True)
+
+    db.session.commit()
+
+    customer = Customer.query.get(customer_id)
+
+    return jsonify(
+        {
+            "ok": True,
+            "message": f"{_display_name(customer) or 'Customer'} reconnected successfully.",
+            "data": _customer_detail_payload(customer),
         }
     )
 
@@ -673,11 +876,18 @@ def admin_subscriptions():
         except Exception:
             pass
 
+        try:
+            filters.append(Subscription.customer.has(Customer.account_number.ilike(f"%{q}%")))
+        except Exception:
+            pass
+
         if hasattr(Subscription, "package"):
             try:
                 package_model = Subscription.package.property.mapper.class_
                 if hasattr(package_model, "name"):
-                    filters.append(Subscription.package.has(package_model.name.ilike(f"%{q}%")))
+                    filters.append(
+                        Subscription.package.has(package_model.name.ilike(f"%{q}%"))
+                    )
             except Exception:
                 pass
 

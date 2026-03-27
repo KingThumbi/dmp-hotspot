@@ -3,75 +3,138 @@
 {% block title %}Create User{% endblock %}
 {% block page_title %}Create System User{% endblock %}
 {% block page_subtitle %}
-Add a new admin, finance, ops, or support user.
+Add a new internal account for admin, finance, operations, or support.
 {% endblock %}
 
 {% block content %}
   <style>
-    /* -------------------------------------------------------
-       Create User — Dashboard-grade form card
-       (HTML-only, preserves routes/vars/blocks)
-    -------------------------------------------------------- */
-
-    .wrap{
+    .create-user-wrap{
       display:flex;
       justify-content:flex-start;
     }
 
-    .cardx{
+    .create-user-card{
       width:100%;
-      max-width:560px;
+      max-width:720px;
       background:#fff;
       border:1px solid var(--border);
-      border-radius:16px;
-      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      border-radius:18px;
+      box-shadow:var(--shadow-sm);
       overflow:hidden;
     }
 
-    .cardx-head{
-      padding:14px 16px;
+    .create-user-head{
+      padding:16px 18px;
       border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+      background:linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
     }
-    .cardx-head h3{
+
+    .create-user-head h3{
       margin:0;
-      font-size:14px;
+      font-size:16px;
       font-weight:950;
       letter-spacing:.2px;
     }
-    .cardx-head p{
-      margin:6px 0 0 0;
-      font-size:12px;
-      color: var(--muted);
-      line-height:1.45;
-      max-width: 80ch;
+
+    .create-user-head p{
+      margin:8px 0 0 0;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.55;
+      max-width:80ch;
     }
 
-    .cardx-body{ padding:16px; }
+    .create-user-body{
+      padding:18px;
+    }
 
-    .grid{
+    .form-grid{
       display:grid;
-      gap:12px;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:14px;
     }
 
     .field{
       display:flex;
       flex-direction:column;
       gap:6px;
+      min-width:0;
     }
+
+    .field.full{
+      grid-column:1 / -1;
+    }
+
     .field label{
       font-size:11px;
       font-weight:900;
-      color: var(--muted);
-      letter-spacing:.4px;
-      text-transform: uppercase;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.45px;
+    }
+
+    .field input,
+    .field select{
+      width:100%;
+      padding:11px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      outline:none;
+      font:inherit;
+      transition:border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .field input:focus,
+    .field select:focus{
+      border-color:rgba(0,0,128,.28);
+      box-shadow:0 0 0 4px rgba(0,0,128,.06);
     }
 
     .help{
-      margin-top:6px;
+      margin-top:2px;
       font-size:12px;
-      color: var(--muted);
+      color:var(--muted);
       line-height:1.45;
+    }
+
+    .role-cards{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:10px;
+      margin-top:4px;
+    }
+
+    .role-card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:#fff;
+    }
+
+    .role-card .title{
+      font-size:12px;
+      font-weight:950;
+      margin:0 0 6px 0;
+      letter-spacing:.3px;
+    }
+
+    .role-card .desc{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.45;
+      margin:0;
+    }
+
+    .hint-box{
+      margin-top:16px;
+      padding:12px 14px;
+      border:1px solid rgba(245, 158, 11, .25);
+      border-radius:14px;
+      background:rgba(255, 251, 235, .72);
+      font-size:12px;
+      color:#78350f;
+      line-height:1.55;
     }
 
     .actions{
@@ -79,56 +142,60 @@ Add a new admin, finance, ops, or support user.
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
-      margin-top:6px;
-    }
-    .btn-sm{
-      padding:10px 12px;
-      border-radius:12px;
-      font-weight:900;
+      margin-top:18px;
     }
 
-    @media (max-width: 720px){
-      .cardx-body{ padding:14px; }
+    @media (max-width: 760px){
+      .create-user-body{
+        padding:14px;
+      }
+
+      .form-grid,
+      .role-cards{
+        grid-template-columns:1fr;
+      }
     }
   </style>
 
-  <div class="wrap">
-    <form method="post" class="cardx">
-
-      <div class="cardx-head">
+  <div class="create-user-wrap">
+    <form method="post" action="{{ url_for('admin.users_new_post') }}" class="create-user-card">
+      <div class="create-user-head">
         <h3>User Details</h3>
         <p>
-          Create a system user with the correct role. You can disable/enable users later from the list.
+          Create a secure internal account with the correct operational role.
+          Use the lowest level of access needed for the user’s work.
         </p>
       </div>
 
-      <div class="cardx-body">
-        <div class="grid">
-
-          <div class="field">
-            <label for="name">Full name</label>
+      <div class="create-user-body">
+        <div class="form-grid">
+          <div class="field full">
+            <label for="name">Full Name</label>
             <input
               id="name"
               type="text"
               name="name"
-              class="input"
-              placeholder="Jane Doe (optional)"
-              style="width:100%; padding:10px;"
+              placeholder="e.g. Jane Wanjiku"
+              autocomplete="name"
             />
+            <div class="help">
+              Optional, but recommended for easier internal identification.
+            </div>
           </div>
 
           <div class="field">
-            <label for="email">Email *</label>
+            <label for="email">Email Address *</label>
             <input
               id="email"
               type="email"
               name="email"
               required
-              class="input"
               placeholder="user@dmpolinconnect.co.ke"
-              style="width:100%; padding:10px;"
               autocomplete="email"
             />
+            <div class="help">
+              This will be used for sign-in and account identification.
+            </div>
           </div>
 
           <div class="field">
@@ -137,41 +204,74 @@ Add a new admin, finance, ops, or support user.
               id="role"
               name="role"
               required
-              class="input"
-              style="width:100%; padding:10px;"
             >
+              <option value="" disabled selected>Select role…</option>
               <option value="support">Support</option>
               <option value="ops">Operations</option>
               <option value="finance">Finance</option>
               <option value="admin">Admin</option>
             </select>
+            <div class="help">
+              Assign the role that matches the user’s operational responsibility.
+            </div>
           </div>
 
-          <div class="field">
-            <label for="password">Initial password *</label>
+          <div class="field full">
+            <label for="password">Initial Password *</label>
             <input
               id="password"
               type="password"
               name="password"
               required
-              class="input"
               placeholder="Minimum 12 characters"
-              style="width:100%; padding:10px;"
               autocomplete="new-password"
             />
             <div class="help">
-              Must include uppercase, lowercase, number, and symbol.
+              Must be at least 12 characters and include uppercase, lowercase, number, and symbol.
             </div>
           </div>
+        </div>
 
-          <div class="actions">
-            <button type="submit" class="btn btn-primary btn-sm">Create User</button>
-            <a href="{{ url_for('admin.users_list') }}" class="btn btn-sm">Cancel</a>
+        <div class="role-cards">
+          <div class="role-card">
+            <p class="title">SUPPORT</p>
+            <p class="desc">
+              Customer support, subscriptions overview, service tickets, and issue follow-up.
+            </p>
           </div>
 
+          <div class="role-card">
+            <p class="title">OPS</p>
+            <p class="desc">
+              PPPoE provisioning, field operations, installations, and operational workflows.
+            </p>
+          </div>
+
+          <div class="role-card">
+            <p class="title">FINANCE</p>
+            <p class="desc">
+              Transactions, expenses, finance dashboard, and billing review.
+            </p>
+          </div>
+
+          <div class="role-card">
+            <p class="title">ADMIN</p>
+            <p class="desc">
+              Full system administration, user management, and account-level control.
+            </p>
+          </div>
+        </div>
+
+        <div class="hint-box">
+          Only create accounts for authorized staff. For security, avoid sharing credentials and change the password after first sign-in if your workflow requires it.
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Create User</button>
+          <a href="{{ url_for('admin.users_list') }}" class="btn">Back to Users</a>
+          <a href="{{ url_for('admin.dashboard') }}" class="btn">Dashboard</a>
         </div>
       </div>
-
     </form>
   </div>
 {% endblock %}

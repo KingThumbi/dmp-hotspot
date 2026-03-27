@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGetWithAuth } from "../../lib/api";
 
 type SubscriptionItem = {
   id: number;
   customer_id: number | null;
   customer_name: string | null;
+  account_number?: string | null;
   package_id: number | null;
   package_name: string | null;
   location_id: number | null;
@@ -39,8 +40,13 @@ function formatDate(value: string | null) {
   return d.toLocaleString();
 }
 
+function getExpiryOrDueDate(item: SubscriptionItem) {
+  return item.expires_at || item.next_due_date || item.ends_at || null;
+}
+
 function StatusPill({ value }: { value: string | null }) {
   const v = (value || "").toLowerCase();
+
   const cls =
     v === "active"
       ? "bg-emerald-100 text-emerald-800"
@@ -51,7 +57,9 @@ function StatusPill({ value }: { value: string | null }) {
       : "bg-gray-100 text-gray-800";
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${cls}`}
+    >
       {value || "—"}
     </span>
   );
@@ -59,6 +67,7 @@ function StatusPill({ value }: { value: string | null }) {
 
 function ServiceTypePill({ value }: { value: string | null }) {
   const v = (value || "").toLowerCase();
+
   const cls =
     v === "pppoe"
       ? "bg-blue-100 text-blue-800"
@@ -67,7 +76,17 @@ function ServiceTypePill({ value }: { value: string | null }) {
       : "bg-gray-100 text-gray-800";
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${cls}`}
+    >
+      {value || "—"}
+    </span>
+  );
+}
+
+function AccountNumberBadge({ value }: { value?: string | null }) {
+  return (
+    <span className="inline-flex rounded-lg bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
       {value || "—"}
     </span>
   );
@@ -78,12 +97,20 @@ export default function SubscriptionsPage() {
   const [authError, setAuthError] = useState("");
   const [pageError, setPageError] = useState("");
   const [items, setItems] = useState<SubscriptionItem[]>([]);
+
   const [status, setStatus] = useState("");
   const [serviceType, setServiceType] = useState("");
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
+
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState<SubscriptionsResponse["pagination"] | null>(null);
+  const [pagination, setPagination] =
+    useState<SubscriptionsResponse["pagination"] | null>(null);
+
+  const loginUrl = useMemo(
+    () => `${import.meta.env.VITE_API_BASE_URL || ""}/admin/login`,
+    []
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -97,6 +124,7 @@ export default function SubscriptionsPage() {
         const params = new URLSearchParams();
         params.set("page", String(page));
         params.set("per_page", "20");
+
         if (status) params.set("status", status);
         if (serviceType) params.set("service_type", serviceType);
         if (q) params.set("q", q);
@@ -106,26 +134,32 @@ export default function SubscriptionsPage() {
         );
 
         if (!mounted) return;
-        setItems(res.data || []);
-        setPagination(res.pagination);
+
+        setItems(Array.isArray(res.data) ? res.data : []);
+        setPagination(res.pagination || null);
       } catch (err: any) {
         if (!mounted) return;
+
         const msg = err?.message || "Failed to load subscriptions.";
+
         if (msg.toLowerCase().includes("authentication required")) {
           setAuthError("Please log in through the existing admin panel first.");
         } else {
           setPageError(msg);
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
     load();
+
     return () => {
       mounted = false;
     };
-  }, [page, status, serviceType, q]);
+  }, [page, q, serviceType, status]);
 
   function applySearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -133,10 +167,18 @@ export default function SubscriptionsPage() {
     setQ(searchInput.trim());
   }
 
+  function resetFilters() {
+    setSearchInput("");
+    setQ("");
+    setStatus("");
+    setServiceType("");
+    setPage(1);
+  }
+
   return (
     <>
       <div className="mb-8">
-        <h1 className="text-3xl md:text-4xl font-extrabold text-[var(--navy)]">
+        <h1 className="text-3xl font-extrabold text-[var(--navy)] md:text-4xl">
           Subscriptions
         </h1>
         <p className="mt-2 text-black/60">
@@ -145,18 +187,20 @@ export default function SubscriptionsPage() {
       </div>
 
       {loading && (
-        <div className="rounded-2xl bg-white border border-black/5 p-6 shadow-sm">
+        <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
           Loading subscriptions...
         </div>
       )}
 
       {!loading && authError && (
-        <div className="rounded-2xl bg-white border border-yellow-300 p-6 shadow-sm">
-          <div className="text-lg font-bold text-[var(--navy)]">Admin login required</div>
+        <div className="rounded-2xl border border-yellow-300 bg-white p-6 shadow-sm">
+          <div className="text-lg font-bold text-[var(--navy)]">
+            Admin login required
+          </div>
           <p className="mt-2 text-black/70">{authError}</p>
           <a
-            href={`${import.meta.env.VITE_API_BASE_URL || ""}/admin/login`}
-            className="inline-block mt-4 px-5 py-3 rounded-xl bg-[var(--gold)] text-black font-extrabold"
+            href={loginUrl}
+            className="mt-4 inline-block rounded-xl bg-[var(--gold)] px-5 py-3 font-extrabold text-black"
           >
             Open Flask Admin Login
           </a>
@@ -164,38 +208,41 @@ export default function SubscriptionsPage() {
       )}
 
       {!loading && !authError && pageError && (
-        <div className="rounded-2xl bg-white border border-red-200 p-6 shadow-sm text-red-700 font-semibold">
+        <div className="rounded-2xl border border-red-200 bg-white p-6 font-semibold text-red-700 shadow-sm">
           {pageError}
         </div>
       )}
 
       {!loading && !authError && !pageError && (
         <>
-          <div className="rounded-2xl bg-white border border-black/5 p-5 shadow-sm mb-6">
-            <div className="flex flex-col xl:flex-row gap-4 xl:items-end xl:justify-between">
-              <form onSubmit={applySearch} className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+          <div className="mb-6 rounded-2xl border border-black/5 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <form
+                onSubmit={applySearch}
+                className="flex w-full flex-col gap-3 sm:flex-row xl:w-auto"
+              >
                 <input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search customer or package..."
-                  className="w-full sm:w-[320px] rounded-xl border border-black/10 px-4 py-3 outline-none focus:border-[var(--gold)]"
+                  placeholder="Search customer, account no., or package..."
+                  className="w-full rounded-xl border border-black/10 px-4 py-3 outline-none focus:border-[var(--gold)] sm:w-[340px]"
                 />
                 <button
                   type="submit"
-                  className="rounded-xl bg-[var(--navy)] text-white px-5 py-3 font-extrabold"
+                  className="rounded-xl bg-[var(--navy)] px-5 py-3 font-extrabold text-white"
                 >
                   Search
                 </button>
               </form>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
                 <select
                   value={status}
                   onChange={(e) => {
                     setPage(1);
                     setStatus(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 px-4 py-3 bg-white outline-none focus:border-[var(--gold)]"
+                  className="rounded-xl border border-black/10 bg-white px-4 py-3 outline-none focus:border-[var(--gold)]"
                 >
                   <option value="">All Statuses</option>
                   <option value="active">Active</option>
@@ -210,22 +257,31 @@ export default function SubscriptionsPage() {
                     setPage(1);
                     setServiceType(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 px-4 py-3 bg-white outline-none focus:border-[var(--gold)]"
+                  className="rounded-xl border border-black/10 bg-white px-4 py-3 outline-none focus:border-[var(--gold)]"
                 >
                   <option value="">All Service Types</option>
                   <option value="pppoe">PPPoE</option>
                   <option value="hotspot">Hotspot</option>
                 </select>
+
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="rounded-xl border border-black/10 bg-white px-4 py-3 font-semibold text-black/75"
+                >
+                  Reset
+                </button>
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white border border-black/5 shadow-sm overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-black/5 text-left">
                   <tr>
                     <th className="px-4 py-3 font-bold text-black/70">Customer</th>
+                    <th className="px-4 py-3 font-bold text-black/70">Account No.</th>
                     <th className="px-4 py-3 font-bold text-black/70">Package</th>
                     <th className="px-4 py-3 font-bold text-black/70">Service Type</th>
                     <th className="px-4 py-3 font-bold text-black/70">Status</th>
@@ -234,27 +290,49 @@ export default function SubscriptionsPage() {
                     <th className="px-4 py-3 font-bold text-black/70">Created</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-black/55">
+                      <td colSpan={8} className="px-4 py-8 text-center text-black/55">
                         No subscriptions found.
                       </td>
                     </tr>
                   ) : (
                     items.map((item) => (
-                      <tr key={item.id} className="border-t border-black/5 align-top">
+                      <tr key={item.id} className="align-top border-t border-black/5">
                         <td className="px-4 py-4">
-                          <div className="font-bold text-black">{item.customer_name || `Customer #${item.customer_id ?? "—"}`}</div>
+                          <div className="font-bold text-black">
+                            {item.customer_name ||
+                              `Customer #${item.customer_id ?? "—"}`}
+                          </div>
                         </td>
-                        <td className="px-4 py-4 text-black/75">{item.package_name || "—"}</td>
-                        <td className="px-4 py-4"><ServiceTypePill value={item.service_type} /></td>
-                        <td className="px-4 py-4"><StatusPill value={item.status} /></td>
-                        <td className="px-4 py-4 text-black/75">{item.location_name || "—"}</td>
-                        <td className="px-4 py-4 text-black/55 whitespace-nowrap">
-                          {formatDate(item.expires_at || item.next_due_date || item.ends_at)}
+
+                        <td className="px-4 py-4">
+                          <AccountNumberBadge value={item.account_number} />
                         </td>
-                        <td className="px-4 py-4 text-black/55 whitespace-nowrap">
+
+                        <td className="px-4 py-4 text-black/75">
+                          {item.package_name || "—"}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <ServiceTypePill value={item.service_type} />
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <StatusPill value={item.status} />
+                        </td>
+
+                        <td className="px-4 py-4 text-black/75">
+                          {item.location_name || "—"}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-4 text-black/55">
+                          {formatDate(getExpiryOrDueDate(item))}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-4 text-black/55">
                           {formatDate(item.created_at)}
                         </td>
                       </tr>
@@ -266,25 +344,27 @@ export default function SubscriptionsPage() {
           </div>
 
           {pagination && (
-            <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-black/60">
-                Page {pagination.page} of {pagination.pages || 1} • Total {pagination.total}
+                Page {pagination.page} of {pagination.pages || 1} • Total{" "}
+                {pagination.total}
               </div>
 
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   disabled={!pagination.has_prev}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-4 py-2 rounded-xl border border-black/10 bg-white disabled:opacity-50"
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  className="rounded-xl border border-black/10 bg-white px-4 py-2 disabled:opacity-50"
                 >
                   Previous
                 </button>
+
                 <button
                   type="button"
                   disabled={!pagination.has_next}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="px-4 py-2 rounded-xl border border-black/10 bg-white disabled:opacity-50"
+                  onClick={() => setPage((prev) => prev + 1)}
+                  className="rounded-xl border border-black/10 bg-white px-4 py-2 disabled:opacity-50"
                 >
                   Next
                 </button>

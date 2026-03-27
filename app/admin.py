@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import re
+import requests
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -29,7 +30,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from app.services.router_actions import reconnect_subscription
-
+from werkzeug.security import generate_password_hash
 from .authz import roles_required
 from .extensions import db, limiter, login_manager
 from .models import (
@@ -1800,11 +1801,72 @@ def pppoe_new():
         suggested_username=_next_pppoe_username(),
     )
 
+def _router_automation_enabled() -> bool:
+    return bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
+
+
+def _router_pppoe_secret_exists(username: str) -> tuple[bool, str | None]:
+    """
+    Best-effort router precheck.
+
+    Returns:
+      (exists, error_message)
+
+    - exists=True, error_message=None   -> username already exists on router
+    - exists=False, error_message=None  -> username not found
+    - exists=False, error_message="..." -> could not verify router state
+    """
+    username = (username or "").strip()
+    if not username:
+        return False, "Missing PPPoE username."
+
+    if not _router_automation_enabled():
+        return False, "Router automation is OFF."
+
+    relay_base = (current_app.config.get("MIKROTIK_RELAY_BASE_URL") or "").strip().rstrip("/")
+    relay_token = (current_app.config.get("MIKROTIK_RELAY_TOKEN") or "").strip()
+
+    if not relay_base or not relay_token:
+        return False, "Router relay is not configured."
+
+    url = f"{relay_base}/pppoe/exists"
+    headers = {
+        "Authorization": f"Bearer {relay_token}",
+        "Accept": "application/json",
+    }
+
+    try:
+        resp = requests.get(
+            url,
+            params={"username": username},
+            headers=headers,
+            timeout=8,
+        )
+    except Exception as e:
+        return False, f"Router existence check failed: {e}"
+
+    if resp.status_code != 200:
+        body = (resp.text or "").strip()
+        return False, f"Router existence check failed ({resp.status_code}): {body or 'No response body'}"
+
+    try:
+        payload = resp.json()
+    except Exception:
+        return False, "Router existence check returned non-JSON response."
+
+    if not isinstance(payload, dict):
+        return False, "Router existence check returned invalid response."
+
+    if payload.get("ok") is not True:
+        return False, payload.get("error") or "Router existence check was not successful."
+
+    return bool(payload.get("exists", False)), None
 
 @admin.post("/pppoe/create")
 @roles_required("ops", "admin")
 @limiter.limit("20 per minute")
 def pppoe_create():
+    full_name_raw = (request.form.get("full_name") or "").strip()
     phone_raw = (request.form.get("phone") or "").strip()
     package_id_raw = (request.form.get("package_id") or "").strip()
     pppoe_username_raw = (request.form.get("pppoe_username") or "").strip().upper()
@@ -1812,6 +1874,14 @@ def pppoe_create():
 
     enable_now = request.form.get("enable_now") == "on"
     set_customer_pppoe = request.form.get("set_customer_pppoe") == "on"
+
+    # -----------------------------
+    # Validate customer name
+    # -----------------------------
+    full_name = " ".join(full_name_raw.split())
+    if not full_name:
+        flash("Customer name is required.", "error")
+        return redirect(url_for("admin.pppoe_new"))
 
     # -----------------------------
     # Validate phone
@@ -1847,118 +1917,164 @@ def pppoe_create():
         return redirect(url_for("admin.pppoe_new"))
 
     # -----------------------------
-    # Username (auto-suggest if blank)
+    # Validate / assign PPPoE username
     # -----------------------------
     pppoe_username = pppoe_username_raw or _next_pppoe_username()
-    if not _parse_pppoe_username(pppoe_username):
-        flash("Invalid PPPoE username format. Use D001..D999 or DA0001..", "error")
+
+    existing_sub = (
+        Subscription.query
+        .filter(Subscription.pppoe_username == pppoe_username)
+        .first()
+    )
+    if existing_sub:
+        flash(f"PPPoE username {pppoe_username} is already in use.", "error")
         return redirect(url_for("admin.pppoe_new"))
 
+    try:
+        if hasattr(Customer, "pppoe_username"):
+            existing_customer_username = (
+                Customer.query
+                .filter(Customer.pppoe_username == pppoe_username)
+                .first()
+            )
+            if existing_customer_username:
+                flash(f"PPPoE username {pppoe_username} is already linked to another customer.", "error")
+                return redirect(url_for("admin.pppoe_new"))
+    except Exception:
+        pass
+
     # -----------------------------
-    # Find/create customer
+    # Inspect router before creating
+    # -----------------------------
+    if enable_now:
+        exists_on_router, router_check_error = _router_pppoe_secret_exists(pppoe_username)
+
+        if router_check_error:
+            flash(
+                f"Could not verify router state before creation: {router_check_error}",
+                "error",
+            )
+            audit(
+                "pppoe_router_precheck_failed",
+                {
+                    "pppoe_username": pppoe_username,
+                    "phone": phone,
+                    "error": router_check_error,
+                },
+            )
+            return redirect(url_for("admin.pppoe_new"))
+
+        if exists_on_router:
+            flash(
+                f"PPPoE username {pppoe_username} already exists on the router. "
+                "Creation stopped to prevent DB/router mismatch.",
+                "error",
+            )
+            audit(
+                "pppoe_router_precheck_exists",
+                {
+                    "pppoe_username": pppoe_username,
+                    "phone": phone,
+                },
+            )
+            return redirect(url_for("admin.pppoe_new"))
+
+    # -----------------------------
+    # Get or create customer WITH NAME
     # -----------------------------
     customer = Customer.query.filter_by(phone=phone).first()
-    if not customer:
-        customer = Customer(phone=phone)
+    if customer:
+        if hasattr(customer, "full_name") and not getattr(customer, "full_name", None):
+            customer.full_name = full_name
+
+        if hasattr(customer, "first_name") and not getattr(customer, "first_name", None):
+            parts = full_name.split()
+            customer.first_name = parts[0] if parts else None
+
+        if hasattr(customer, "last_name") and not getattr(customer, "last_name", None):
+            parts = full_name.split()
+            customer.last_name = " ".join(parts[1:]) if len(parts) > 1 else None
+    else:
+        customer = Customer(
+            phone=phone,
+        )
+
+        if hasattr(customer, "full_name"):
+            customer.full_name = full_name
+
+        if hasattr(customer, "first_name"):
+            parts = full_name.split()
+            customer.first_name = parts[0] if parts else None
+
+        if hasattr(customer, "last_name"):
+            parts = full_name.split()
+            customer.last_name = " ".join(parts[1:]) if len(parts) > 1 else None
+
         db.session.add(customer)
         db.session.flush()
 
-    if not customer.account_number:
+    # -----------------------------
+    # Set PPPoE identity on customer if model supports it
+    # -----------------------------
+    if hasattr(customer, "account_number") and not getattr(customer, "account_number", None):
         customer.account_number = pppoe_username
-    # -----------------------------
-    # Prevent username collisions with ACTIVE subs
-    # -----------------------------
-    exists_active = (
-        Subscription.query.filter(
-            Subscription.service_type == "pppoe",
-            Subscription.status == "active",
-            Subscription.pppoe_username == pppoe_username,
-        )
-        .first()
-    )
-    if exists_active:
-        flash(f"PPPoE username {pppoe_username} already has an ACTIVE subscription.", "error")
-        return redirect(url_for("admin.pppoe_new"))
+
+    if set_customer_pppoe and hasattr(customer, "pppoe_username"):
+        customer.pppoe_username = pppoe_username
 
     # -----------------------------
-    # Optionally set customer PPPoE creds
-    # -----------------------------
-    if set_customer_pppoe:
-        if hasattr(customer, "pppoe_username"):
-            if getattr(customer, "pppoe_username", None) and customer.pppoe_username != pppoe_username:
-                flash(f"Customer already has PPPoE username {customer.pppoe_username}. Not overwritten.", "warning")
-            else:
-                customer.pppoe_username = pppoe_username
-
-        if hasattr(customer, "pppoe_password") and not getattr(customer, "pppoe_password", None):
-            customer.pppoe_password = _gen_pppoe_password()
-
-    # -----------------------------
-    # Build subscription (0 months => pending shell)
+    # Build subscription shell
     # -----------------------------
     now = utcnow_naive()
+    expires_at = None
+    status = "pending"
 
     duration_minutes = int(getattr(package, "duration_minutes", 0) or 0)
-    if duration_minutes <= 0:
-        duration_minutes = 43200  # 30 days fallback
-
-    if months == 0:
-        status = "pending"
-        starts_at = None
-        expires_at = None
-        # If they chose enable_now but months=0, we can't enable on router
-        if enable_now:
-            flash("0 months creates a pending subscription. Router enable skipped.", "warning")
-            enable_now = False
-    else:
-        status = "active"
-        starts_at = now
+    if months > 0:
+        if duration_minutes <= 0:
+            duration_minutes = 43200  # 30 days fallback
         expires_at = now + timedelta(minutes=duration_minutes * months)
+        status = "active"
 
     sub = Subscription(
         customer_id=customer.id,
         package_id=package.id,
         service_type="pppoe",
         status=status,
-        starts_at=starts_at,
+        starts_at=now if months > 0 else None,
         expires_at=expires_at,
-        pppoe_username=pppoe_username,
         hotspot_username=None,
-        router_username=None,  # legacy; do not use
+        pppoe_username=pppoe_username,
+        router_username=None,
+        last_tx_id=None,
+        created_at=now,
     )
+
+    # If your Subscription model supports location_id and you later add it to the form,
+    # set it here as well.
+
+    # Optional router secret password if your model supports it
+    if hasattr(sub, "pppoe_password") and not getattr(sub, "pppoe_password", None):
+        sub.pppoe_password = _gen_pppoe_password()
+
     db.session.add(sub)
-    db.session.flush()
 
-    # -----------------------------
-    # Create Transaction ONLY if months > 0
-    # -----------------------------
-    tx = None
-    if months > 0:
-        tx = Transaction(
-            customer_id=customer.id,
-            package_id=package.id,
-            amount=int(package.price_kes or 0),
-            status="success",
-            checkout_request_id=None,
-            merchant_request_id=None,
-            mpesa_receipt=None,
-            result_code="ADMIN",
-            result_desc=f"Admin PPPoE activation ({months} month(s))",
-            raw_callback_json=None,
-        )
-        db.session.add(tx)
-        db.session.flush()
-        sub.last_tx_id = tx.id
-
-    # -----------------------------
-    # Commit
-    # -----------------------------
     try:
         db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        flash("DB conflict. That PPPoE username may already exist. Try a different username.", "error")
-        return redirect(url_for("admin.pppoe_new"))
+        audit(
+            "pppoe_subscription_created",
+            {
+                "customer_id": customer.id,
+                "customer_name": getattr(customer, "full_name", None),
+                "phone": customer.phone,
+                "subscription_id": sub.id,
+                "package_id": package.id,
+                "package_code": package.code,
+                "pppoe_username": pppoe_username,
+                "months": months,
+                "enable_now": enable_now,
+            },
+        )
     except Exception as e:
         db.session.rollback()
         flash(f"Failed to create PPPoE subscription: {e}", "error")
@@ -1967,52 +2083,24 @@ def pppoe_create():
     # -----------------------------
     # Optional router provisioning
     # -----------------------------
-    router_enabled = bool(current_app.config.get("ROUTER_AGENT_ENABLED", False))
-
-    if enable_now:
-        if not router_enabled:
-            flash("Router automation is OFF (ROUTER_AGENT_ENABLED=false). Subscription created in DB only.", "warning")
-        else:
-            try:
-                agent_enable(
-                    current_app,
-                    pppoe_username,
-                    package.mikrotik_profile,
-                    0,
-                    comment=f"PPPoE provisioned by admin (sub_id={sub.id})",
-                )
-                flash("PPPoE provisioned/enabled on router.", "success")
-            except Exception as e:
-                flash(f"Router provisioning failed: {e}", "error")
-                audit(
-                    "pppoe_router_provision_failed",
-                    {"sub_id": sub.id, "pppoe_username": pppoe_username, "error": str(e)},
-                )
-
-    # -----------------------------
-    # Audit + redirect
-    # -----------------------------
-    audit(
-        "pppoe_subscription_created",
-        {
-            "sub_id": sub.id,
-            "customer_id": customer.id,
-            "phone": phone,
-            "pppoe_username": pppoe_username,
-            "package_code": getattr(package, "code", None),
-            "months": months,
-            "status": status,
-            "expires_at": expires_at.isoformat() if expires_at else None,
-            "router_enabled": router_enabled,
-            "router_provision_attempted": bool(enable_now),
-        },
-    )
+    if enable_now and sub.status == "active":
+        try:
+            agent_enable(sub.id)
+        except Exception:
+            # Do not fail the subscription creation if router action fails
+            pass
 
     if months == 0:
-        flash(f"PPPoE subscription shell created: {pppoe_username} (pending; no expiry set)", "success")
+        flash(
+            f"PPPoE subscription shell created for {full_name}: {pppoe_username} (pending; no expiry set)",
+            "success",
+        )
         return redirect(url_for("admin.subscriptions", svc="pppoe", status="pending", q=pppoe_username))
 
-    flash(f"PPPoE subscription created: {pppoe_username} (expires {expires_at})", "success")
+    flash(
+        f"PPPoE subscription created for {full_name}: {pppoe_username} (expires {expires_at})",
+        "success",
+    )
     return redirect(url_for("admin.subscriptions", svc="pppoe", status="active", q=pppoe_username))
 
 # =========================================================
@@ -2405,67 +2493,107 @@ def expense_create():
 # Phase E: System Users (Admin-only)
 # =========================================================
 
-@admin.route("/admin/users", methods=["GET"])
+@admin.get("/users")
 @login_required
 @roles_required("admin")
 def users_list():
     users = (
         AdminUser.query
-        .order_by(AdminUser.is_superadmin.desc(), AdminUser.role.asc(), AdminUser.email.asc())
+        .order_by(
+            AdminUser.is_superadmin.desc(),
+            AdminUser.role.asc(),
+            AdminUser.email.asc(),
+        )
         .all()
     )
     return render_template("admin/users_list.html", users=users)
 
 
-@admin.route("/admin/users/new", methods=["GET"])
+@admin.get("/users/new")
 @login_required
 @roles_required("admin")
 def users_new_get():
     return render_template("admin/users_new.html")
 
 
-@admin.route("/users/new", methods=["POST"])
+@admin.post("/users/new")
 @login_required
 @roles_required("admin")
+@limiter.limit("10 per minute")
 def users_new_post():
     email = (request.form.get("email") or "").strip().lower()
     name = (request.form.get("name") or "").strip() or None
-    role = (request.form.get("role") or "admin").strip().lower()
+    role = (request.form.get("role") or "").strip().lower()
     password = (request.form.get("password") or "").strip()
 
     allowed_roles = {"admin", "finance", "ops", "support"}
 
     if not email or "@" not in email:
-        flash("Valid email is required.", "warning")
+        flash("Valid email is required.", "error")
         return redirect(url_for("admin.users_new_get"))
 
     if role not in allowed_roles:
-        flash("Invalid role selected.", "warning")
+        flash("Invalid role selected.", "error")
         return redirect(url_for("admin.users_new_get"))
 
-    if len(password) < 10:
-        flash("Password must be at least 10 characters.", "warning")
+    if len(password) < 12:
+        flash("Password must be at least 12 characters.", "error")
         return redirect(url_for("admin.users_new_get"))
 
-    if AdminUser.query.filter_by(email=email).first():
-        flash("A user with that email already exists.", "warning")
+    has_upper = any(c.isupper() for c in password)
+    has_lower = any(c.islower() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_symbol = any(not c.isalnum() for c in password)
+
+    if not (has_upper and has_lower and has_digit and has_symbol):
+        flash("Password must include uppercase, lowercase, number, and symbol.", "error")
         return redirect(url_for("admin.users_new_get"))
 
-    u = AdminUser(email=email, name=name, role=role, is_active=True, is_superadmin=False)
-    u.set_password(password)
+    existing = AdminUser.query.filter_by(email=email).first()
+    if existing:
+        flash("A user with that email already exists.", "error")
+        return redirect(url_for("admin.users_new_get"))
+
+    user = AdminUser(
+        email=email,
+        name=name,
+        role=role,
+        is_active=True,
+        is_superadmin=False,
+    )
+
+    if hasattr(user, "set_password"):
+        user.set_password(password)
+    elif hasattr(user, "password_hash"):
+        user.password_hash = generate_password_hash(password)
+    else:
+        flash("Password handling is not configured on AdminUser.", "error")
+        return redirect(url_for("admin.users_new_get"))
 
     try:
-        db.session.add(u)
+        db.session.add(user)
         db.session.commit()
+
+        audit(
+            "system_user_created",
+            {
+                "user_id": user.id,
+                "email": user.email,
+                "role": user.role,
+                "created_by": getattr(current_user, "id", None),
+            },
+        )
+
         flash("User created successfully.", "success")
     except Exception:
         db.session.rollback()
+        current_app.logger.exception("Failed to create system user")
         flash("Failed to create user. Please try again.", "error")
 
     return redirect(url_for("admin.users_list"))
 
 
-@admin.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
+@admin.post("/users/<int:user_id>/toggle")
 @login_required
 @roles_required("admin")
 def users_toggle(user_id: int):
@@ -2473,17 +2601,30 @@ def users_toggle(user_id: int):
         flash("You cannot disable your own account.", "warning")
         return redirect(url_for("admin.users_list"))
 
-    u = AdminUser.query.get_or_404(user_id)
+    user = AdminUser.query.get_or_404(user_id)
 
-    if u.is_superadmin:
+    if getattr(user, "is_superadmin", False):
         flash("Superadmin account cannot be disabled from this screen.", "warning")
         return redirect(url_for("admin.users_list"))
 
-    u.is_active = not bool(u.is_active)
+    user.is_active = not bool(user.is_active)
 
     try:
         db.session.commit()
-        flash(f"User {'enabled' if u.is_active else 'disabled'} successfully.", "success")
+
+        audit(
+            "system_user_toggled",
+            {
+                "user_id": user.id,
+                "new_state": "active" if user.is_active else "disabled",
+                "changed_by": getattr(current_user, "id", None),
+            },
+        )
+
+        flash(
+            f"User {'enabled' if user.is_active else 'disabled'} successfully.",
+            "success",
+        )
     except Exception:
         db.session.rollback()
         flash("Failed to update user.", "error")

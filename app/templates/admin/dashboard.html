@@ -4,51 +4,172 @@
 {% block header %}Dashboard{% endblock %}
 
 {% block page_subtitle %}
-  <p class="muted">Quick overview + shortcuts to Support, Operations, Finance, and Administration.</p>
+  <p class="muted">
+    Quick overview + shortcuts to Support, Operations, Finance, and Administration.
+  </p>
 {% endblock %}
 
 {% block content %}
   <style>
-    .grid{ display:grid; gap:12px; }
-    .grid.kpis{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .grid.links{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid{
+      display:grid;
+      gap:12px;
+    }
+
+    .grid.kpis{
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+    }
+
+    .grid.sections{
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
     @media (max-width: 980px){
-      .grid.kpis{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .grid.links{ grid-template-columns: 1fr; }
+      .grid.kpis{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.sections{
+        grid-template-columns:1fr;
+      }
+    }
+
+    @media (max-width: 640px){
+      .grid.kpis{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:#fff;
+      padding:16px;
+      box-shadow:var(--shadow-sm);
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:14px;
+      flex-wrap:wrap;
+      margin-bottom:12px;
+    }
+
+    .hero h2{
+      margin:0;
+      font-size:20px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+
+    .hero p{
+      margin:8px 0 0 0;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.55;
+      max-width:78ch;
+    }
+
+    .hero-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
     }
 
     .kpi{
       border:1px solid var(--border);
-      border-radius: 16px;
+      border-radius:16px;
       background:#fff;
       padding:14px;
-      box-shadow: var(--shadow-sm);
-      transition: transform .06s ease, box-shadow .2s ease, border-color .2s ease;
+      box-shadow:var(--shadow-sm);
+      transition:transform .06s ease, box-shadow .2s ease, border-color .2s ease;
+      text-decoration:none;
+      color:inherit;
+      min-width:0;
     }
+
     .kpi:hover{
-      transform: translateY(-1px);
-      border-color: rgba(0,0,128,0.22);
-      box-shadow: 0 12px 28px rgba(16, 24, 40, 0.10);
+      transform:translateY(-1px);
+      border-color:rgba(0,0,128,0.22);
+      box-shadow:0 12px 28px rgba(16, 24, 40, 0.10);
     }
-    .kpi .label{ font-size:12px; color: var(--muted); font-weight:900; }
-    .kpi .value{ font-size:24px; font-weight:950; margin-top:6px; }
-    .kpi .hint{ margin-top:6px; font-size:12px; color: var(--muted); }
+
+    .kpi .label{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.4px;
+    }
+
+    .kpi .value{
+      font-size:26px;
+      font-weight:950;
+      margin-top:8px;
+      color:var(--navy);
+      line-height:1;
+    }
+
+    .kpi .hint{
+      margin-top:8px;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.45;
+    }
 
     .panel{
       border:1px solid var(--border);
-      border-radius: 16px;
+      border-radius:16px;
       background:#fff;
       padding:14px;
-      box-shadow: var(--shadow-sm);
+      box-shadow:var(--shadow-sm);
     }
-    .panel h3{ margin:0 0 8px 0; font-size:14px; font-weight:950; }
-    .panel .muted{ font-size:12px; }
 
-    .btnrow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-    .btn-sm{ padding:8px 10px; font-size:12px; }
+    .panel h3{
+      margin:0 0 8px 0;
+      font-size:14px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
 
-    table{ width:100%; border-collapse:separate; border-spacing:0 10px; margin-top:10px; }
-    th{ text-align:left; font-size:12px; color: var(--muted); font-weight:900; }
+    .panel .muted{
+      font-size:12px;
+      line-height:1.5;
+    }
+
+    .btnrow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+
+    .btn-sm{
+      padding:8px 10px;
+      font-size:12px;
+    }
+
+    .table-wrap{
+      overflow-x:auto;
+      width:100%;
+    }
+
+    table{
+      width:100%;
+      min-width:720px;
+      border-collapse:separate;
+      border-spacing:0 10px;
+      margin-top:10px;
+    }
+
+    th{
+      text-align:left;
+      font-size:12px;
+      color:var(--muted);
+      font-weight:900;
+      white-space:nowrap;
+    }
+
     td{
       padding:10px 12px;
       background:#fff;
@@ -56,9 +177,27 @@
       border-bottom:1px solid var(--border);
       vertical-align:middle;
     }
-    tr td:first-child{ border-left:1px solid var(--border); border-top-left-radius:12px; border-bottom-left-radius:12px; }
-    tr td:last-child{ border-right:1px solid var(--border); border-top-right-radius:12px; border-bottom-right-radius:12px; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+
+    tr td:first-child{
+      border-left:1px solid var(--border);
+      border-top-left-radius:12px;
+      border-bottom-left-radius:12px;
+    }
+
+    tr td:last-child{
+      border-right:1px solid var(--border);
+      border-top-right-radius:12px;
+      border-bottom-right-radius:12px;
+    }
+
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+    }
+
+    .section-gap{
+      height:12px;
+    }
   </style>
 
   {# Role helpers from your AdminUser model #}
@@ -68,33 +207,52 @@
   {% set can_ops = (me and (is_admin or me.can_ops())) %}
   {% set can_finance = (me and (is_admin or me.can_finance())) %}
 
+  <div class="hero">
+    <div>
+      <h2>Dmpolin Connect Admin Dashboard</h2>
+      <p>
+        Operational overview for customers, subscriptions, payments, service delivery,
+        and administration. Use the shortcuts below to move quickly into the area you
+        manage most.
+      </p>
+    </div>
+
+    <div class="hero-actions">
+      {% if is_admin %}
+        <a class="btn btn-primary" href="{{ url_for('admin.users_new_get') }}">+ Create System User</a>
+        <a class="btn" href="{{ url_for('admin.users_list') }}">Manage Users</a>
+      {% endif %}
+      <a class="btn" href="{{ url_for('admin.account_password_get') }}">Change Password</a>
+    </div>
+  </div>
+
   {# ---------------- KPI CARDS ---------------- #}
   <div class="grid kpis">
     {% if can_support %}
       <a class="kpi" href="{{ url_for('admin.customers') }}">
         <div class="label">Customers</div>
         <div class="value">{{ customers_count or 0 }}</div>
-        <div class="hint">View customers & history</div>
+        <div class="hint">View customers, records, and support history.</div>
       </a>
     {% else %}
       <div class="kpi">
         <div class="label">Customers</div>
         <div class="value">{{ customers_count or 0 }}</div>
-        <div class="hint">Support access required</div>
+        <div class="hint">Support access required.</div>
       </div>
     {% endif %}
 
-    {% if (can_support or can_ops) %}
+    {% if can_support or can_ops %}
       <a class="kpi" href="{{ url_for('admin.subscriptions') }}">
         <div class="label">Active Subscriptions</div>
         <div class="value">{{ active_subs or 0 }}</div>
-        <div class="hint">Hotspot + PPPoE</div>
+        <div class="hint">Hotspot and PPPoE services currently active.</div>
       </a>
     {% else %}
       <div class="kpi">
         <div class="label">Active Subscriptions</div>
         <div class="value">{{ active_subs or 0 }}</div>
-        <div class="hint">Ops/Support access required</div>
+        <div class="hint">Ops or support access required.</div>
       </div>
     {% endif %}
 
@@ -102,13 +260,13 @@
       <a class="kpi" href="{{ url_for('admin.transactions') }}">
         <div class="label">Payments (Pending)</div>
         <div class="value">{{ pending_tx or 0 }}</div>
-        <div class="hint">Track M-Pesa lifecycle</div>
+        <div class="hint">Track pending M-Pesa and related payment flows.</div>
       </a>
     {% else %}
       <div class="kpi">
         <div class="label">Payments (Pending)</div>
         <div class="value">{{ pending_tx or 0 }}</div>
-        <div class="hint">Finance access required</div>
+        <div class="hint">Finance access required.</div>
       </div>
     {% endif %}
 
@@ -125,19 +283,21 @@
       <div class="kpi">
         <div class="label">This Month Profit (KES)</div>
         <div class="value">{{ (finance.profit_kes if finance else 0) or 0 }}</div>
-        <div class="hint">Finance access required</div>
+        <div class="hint">Finance access required.</div>
       </div>
     {% endif %}
   </div>
 
-  <div style="height:12px;"></div>
+  <div class="section-gap"></div>
 
   {# ---------------- SECTION SHORTCUT PANELS ---------------- #}
-  <div class="grid links">
-
+  <div class="grid sections">
     <div class="panel">
       <h3>Support</h3>
-      <div class="muted">Customers, subscriptions overview, and service tickets.</div>
+      <div class="muted">
+        Customers, subscriptions overview, service tickets, and day-to-day issue resolution.
+      </div>
+
       <div class="btnrow">
         {% if can_support %}
           <a class="btn btn-sm btn-primary" href="{{ url_for('admin.customers') }}">Customers</a>
@@ -148,14 +308,18 @@
           <span class="muted">Support links hidden (no access).</span>
         {% endif %}
       </div>
+
       <div class="muted" style="margin-top:10px;">
-        Tip: Locations are per-customer → open a customer then click <b>Locations</b>.
+        Tip: customer locations are usually easiest to manage from the customer detail page.
       </div>
     </div>
 
     <div class="panel">
       <h3>Operations</h3>
-      <div class="muted">Provision PPPoE, manage assets, and handle field work.</div>
+      <div class="muted">
+        Provision PPPoE, manage assets, and follow up installations and field work.
+      </div>
+
       <div class="btnrow">
         {% if can_ops %}
           <a class="btn btn-sm btn-primary" href="{{ url_for('admin.pppoe_new') }}">+ New PPPoE</a>
@@ -170,7 +334,10 @@
 
     <div class="panel">
       <h3>Finance</h3>
-      <div class="muted">Revenue, expenses, categories, templates, and exports.</div>
+      <div class="muted">
+        Revenue, expenses, templates, categories, and financial review.
+      </div>
+
       <div class="btnrow">
         {% if can_finance %}
           <a class="btn btn-sm btn-primary" href="{{ url_for('admin.dashboard_finance') }}">Finance Dashboard</a>
@@ -186,57 +353,71 @@
 
     <div class="panel">
       <h3>Administration</h3>
-      <div class="muted">System users and account security.</div>
+      <div class="muted">
+        System users, account security, and administrative controls.
+      </div>
+
       <div class="btnrow">
         {% if is_admin %}
           <a class="btn btn-sm btn-primary" href="{{ url_for('admin.users_list') }}">Users</a>
+          <a class="btn btn-sm" href="{{ url_for('admin.users_new_get') }}">+ Create User</a>
         {% endif %}
         <a class="btn btn-sm" href="{{ url_for('admin.account_password_get') }}">Change Password</a>
         <a class="btn btn-sm" href="{{ url_for('admin.logout') }}">Logout</a>
       </div>
+
       {% if not is_admin %}
-        <div class="muted" style="margin-top:10px;">Users page is admin-only.</div>
+        <div class="muted" style="margin-top:10px;">
+          User management is admin-only.
+        </div>
       {% endif %}
     </div>
-
   </div>
 
-  <div style="height:12px;"></div>
+  <div class="section-gap"></div>
 
   {# ---------------- RECENT TRANSACTIONS ---------------- #}
   <div class="panel">
     <h3>Recent Transactions</h3>
-    <div class="muted">Latest 10 payments. Use Transactions page for full list.</div>
+    <div class="muted">
+      Latest 10 payments. Use the Transactions page for the full ledger.
+    </div>
 
     {% if can_finance %}
-      <table>
-        <thead>
-          <tr>
-            <th style="width:90px;">ID</th>
-            <th style="width:120px;">Status</th>
-            <th style="width:140px;">Amount</th>
-            <th>Customer</th>
-            <th style="width:220px;">Created (UTC)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in recent %}
+      <div class="table-wrap">
+        <table>
+          <thead>
             <tr>
-              <td class="mono muted">{{ t.id }}</td>
-              <td><span class="pill">{{ t.status }}</span></td>
-              <td class="mono">KES {{ t.amount }}</td>
-              <td class="mono">{{ t.customer.phone if t.customer else "-" }}</td>
-              <td class="muted">{{ t.created_at }}</td>
+              <th style="width:90px;">ID</th>
+              <th style="width:120px;">Status</th>
+              <th style="width:140px;">Amount</th>
+              <th>Customer</th>
+              <th style="width:220px;">Created (UTC)</th>
             </tr>
-          {% else %}
-            <tr>
-              <td colspan="5" class="muted" style="background:transparent; border:0;">No transactions yet.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for t in recent %}
+              <tr>
+                <td class="mono muted">{{ t.id }}</td>
+                <td><span class="pill">{{ t.status }}</span></td>
+                <td class="mono">KES {{ t.amount }}</td>
+                <td class="mono">{{ t.customer.phone if t.customer else "-" }}</td>
+                <td class="muted">{{ t.created_at }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="5" class="muted" style="background:transparent; border:0;">
+                  No transactions yet.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      <div class="muted" style="margin-top:10px;">Finance access required to view transactions.</div>
+      <div class="muted" style="margin-top:10px;">
+        Finance access required to view transactions.
+      </div>
     {% endif %}
   </div>
 {% endblock %}

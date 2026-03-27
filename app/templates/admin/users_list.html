@@ -3,287 +3,360 @@
 {% block title %}System Users{% endblock %}
 {% block page_title %}System Users{% endblock %}
 {% block page_subtitle %}
-Manage admin, finance, ops, and support users.
-{% endblock %}
-
-{% block header_right %}
-  <a class="btnlink" href="{{ url_for('admin.users_new') }}">+ New User</a>
+Manage internal admin, finance, operations, and support accounts.
 {% endblock %}
 
 {% block content %}
   <style>
-    /* -------------------------------------------------------
-       Users List — Dashboard-grade table + overflow safety
-       (HTML-only, preserves routes/vars/blocks)
-    -------------------------------------------------------- */
+    .users-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
 
-    .cardx{
-      background:#fff;
+    .users-hero{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:14px;
+      flex-wrap:wrap;
+      padding:16px;
       border:1px solid var(--border);
       border-radius:16px;
-      box-shadow:0 6px 18px rgba(0,0,0,.04);
+      background:#fff;
+      box-shadow:var(--shadow-sm);
+    }
+
+    .users-hero h3{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+
+    .users-hero p{
+      margin:8px 0 0 0;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.55;
+      max-width:78ch;
+    }
+
+    .users-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .panel{
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:#fff;
+      box-shadow:var(--shadow-sm);
       overflow:hidden;
+    }
+
+    .panel-head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+
+    .panel-head h3{
+      margin:0;
+      font-size:14px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+
+    .panel-head p{
+      margin:5px 0 0 0;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.45;
     }
 
     .table-wrap{
-      padding: 10px 12px 14px;
-      overflow-x:auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .table-wrap::-webkit-scrollbar{ height:10px; }
-    .table-wrap::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.12); border-radius:999px; }
-    .table-wrap::-webkit-scrollbar-track{ background: rgba(0,0,0,.04); border-radius:999px; }
-
-    table{
       width:100%;
-      min-width: 960px;
-      border-collapse: separate;
-      border-spacing: 0 10px;
+      overflow-x:auto;
     }
-    thead th{
+
+    .tablex{
+      width:100%;
+      min-width:860px;
+      border-collapse:separate;
+      border-spacing:0;
+    }
+
+    .tablex th,
+    .tablex td{
+      padding:12px 14px;
       text-align:left;
-      font-size:12px;
-      color: var(--muted);
-      font-weight:900;
-      padding: 0 10px 4px;
-      white-space:nowrap;
-    }
-    tbody td{
-      padding:10px 12px;
-      background:#fff;
-      border-top:1px solid var(--border);
-      border-bottom:1px solid var(--border);
-      vertical-align: middle;
-    }
-    tbody tr td:first-child{
-      border-left:1px solid var(--border);
-      border-top-left-radius:14px;
-      border-bottom-left-radius:14px;
-    }
-    tbody tr td:last-child{
-      border-right:1px solid var(--border);
-      border-top-right-radius:14px;
-      border-bottom-right-radius:14px;
+      border-bottom:1px solid rgba(2,6,23,.06);
+      vertical-align:middle;
     }
 
-    .cell-trunc{
-      max-width: 320px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      display:inline-block;
-      vertical-align:bottom;
-    }
-
-    .namecell{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-    }
-    .avatar{
-      width:34px;
-      height:34px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background: rgba(2,6,23,.03);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-weight:950;
-      letter-spacing:.3px;
-      color: rgba(2,6,23,.75);
-      flex: 0 0 auto;
-      user-select:none;
-    }
-    .nameblock{ min-width:0; display:flex; flex-direction:column; gap:2px; }
-    .nameblock strong{
-      font-weight:950;
-      letter-spacing:.2px;
-      max-width: 320px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .nameblock small{
-      font-size:12px;
-      color: var(--muted);
-      font-weight:900;
-      letter-spacing:.2px;
-    }
-
-    .pillx{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
+    .tablex th{
       font-size:11px;
       font-weight:950;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.45px;
+      background:rgba(2,6,23,.025);
       white-space:nowrap;
-      background: rgba(2,6,23,.02);
     }
-    .dot{
-      width:8px; height:8px;
+
+    .tablex tr:last-child td{
+      border-bottom:none;
+    }
+
+    .name-cell{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-width:0;
+    }
+
+    .name-main{
+      font-size:13px;
+      font-weight:950;
+      color:#0f172a;
+      line-height:1.35;
+      word-break:break-word;
+    }
+
+    .name-sub{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.4;
+      word-break:break-word;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
       border-radius:999px;
-      background: rgba(148,163,184,0.95);
-      box-shadow: 0 0 0 3px rgba(148,163,184,0.16);
-    }
-    .pillx-ok{
-      border-color: rgba(16,185,129,0.30);
-      background: rgba(16,185,129,0.10);
-    }
-    .pillx-ok .dot{
-      background: rgba(16,185,129,0.95);
-      box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
-    }
-    .pillx-warn{
-      border-color: rgba(148,163,184,0.45);
-      background: rgba(148,163,184,0.10);
+      padding:5px 10px;
+      font-size:11px;
+      font-weight:900;
+      line-height:1;
+      white-space:nowrap;
     }
 
-    .pillx-role{
-      border-color: rgba(59,130,246,0.20);
-      background: rgba(59,130,246,0.08);
-    }
-    .pillx-role .dot{
-      background: rgba(59,130,246,0.90);
-      box-shadow: 0 0 0 3px rgba(59,130,246,0.14);
+    .pill-admin{ background:#dbeafe; color:#1d4ed8; }
+    .pill-ops{ background:#e0e7ff; color:#4338ca; }
+    .pill-finance{ background:#dcfce7; color:#166534; }
+    .pill-support{ background:#f3e8ff; color:#7e22ce; }
+    .pill-default{ background:#e5e7eb; color:#374151; }
+
+    .pill-active{ background:#dcfce7; color:#166534; }
+    .pill-disabled{ background:#fee2e2; color:#991b1b; }
+    .pill-super{ background:#fef3c7; color:#92400e; }
+
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
     }
 
-    .pillx-super{
-      border-color: rgba(245,158,11,0.28);
-      background: rgba(245,158,11,0.10);
-    }
-    .pillx-super .dot{
-      background: rgba(245,158,11,0.95);
-      box-shadow: 0 0 0 3px rgba(245,158,11,0.16);
+    .muted-sm{
+      font-size:12px;
+      color:var(--muted);
     }
 
     .actions{
-      display:inline-flex;
+      display:flex;
       gap:8px;
       flex-wrap:wrap;
-      justify-content:flex-end;
       align-items:center;
     }
-    .btn-sm{
-      padding:8px 10px;
+
+    .btn-xs{
+      padding:7px 10px;
+      border-radius:10px;
       font-size:12px;
-      border-radius:12px;
+      font-weight:900;
+      line-height:1;
+      border:1px solid var(--border);
+      background:#fff;
+      cursor:pointer;
     }
 
-    .mono{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:12px;
+    .btn-xs-danger{
+      background:#fff1f2;
+      border-color:#fecdd3;
+      color:#be123c;
+    }
+
+    .btn-xs-success{
+      background:#ecfdf5;
+      border-color:#bbf7d0;
+      color:#166534;
     }
 
     .empty{
-      padding: 14px 16px;
-      color: var(--muted);
-      font-size: 13px;
+      padding:18px 16px;
+      font-size:13px;
+      color:var(--muted);
+    }
+
+    .hint-box{
+      padding:12px 14px;
+      border:1px solid rgba(245, 158, 11, .25);
+      border-radius:14px;
+      background:rgba(255, 251, 235, .72);
+      font-size:12px;
+      color:#78350f;
+      line-height:1.5;
     }
 
     @media (max-width: 720px){
-      .table-wrap{ padding: 8px 10px 12px; }
-      table{ min-width: 940px; }
-      .cell-trunc{ max-width: 240px; }
-      .nameblock strong{ max-width: 240px; }
+      .users-hero{
+        padding:14px;
+      }
     }
   </style>
 
-  <div class="cardx">
-    {% if users and users|length %}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:280px;">User</th>
-              <th>Email</th>
-              <th style="width:160px;">Role</th>
-              <th style="width:140px;">Status</th>
-              <th style="width:140px;">Created</th>
-              <th style="width:200px; text-align:right;">Actions</th>
-            </tr>
-          </thead>
+  <div class="users-wrap">
+    <section class="users-hero">
+      <div>
+        <h3>Internal User Management</h3>
+        <p>
+          Create and manage accounts for admin, finance, operations, and support staff.
+          Only active users can sign in. Superadmin accounts are protected from disable actions here.
+        </p>
+      </div>
 
-          <tbody>
-            {% for u in users %}
-              {% set initials = ((u.name or u.email or "U")[:1])|upper %}
+      <div class="users-actions">
+        <a href="{{ url_for('admin.users_new_get') }}" class="btn btn-primary">+ Create User</a>
+        <a href="{{ url_for('admin.dashboard') }}" class="btn">Back to Dashboard</a>
+      </div>
+    </section>
+
+    <div class="hint-box">
+      Role access should follow operational responsibility:
+      <b>Support</b> for customers and tickets,
+      <b>Ops</b> for provisioning and field workflows,
+      <b>Finance</b> for transactions and expenses,
+      <b>Admin</b> for full control.
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>User Accounts</h3>
+          <p>
+            Review account status, assigned roles, and administrative protections.
+          </p>
+        </div>
+
+        <div class="muted-sm">
+          Total users: <b>{{ users|length }}</b>
+        </div>
+      </div>
+
+      {% if users %}
+        <div class="table-wrap">
+          <table class="tablex">
+            <thead>
               <tr>
-                <td>
-                  <div class="namecell">
-                    <div class="avatar" aria-hidden="true">{{ initials }}</div>
-
-                    <div class="nameblock">
-                      <strong title="{{ u.name or '—' }}">{{ u.name or "—" }}</strong>
-
-                      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                        {% if u.is_superadmin %}
-                          <span class="pillx pillx-super" title="Superadmin">
-                            <span class="dot"></span> superadmin
-                          </span>
-                        {% endif %}
+                <th style="width:270px;">User</th>
+                <th style="width:150px;">Role</th>
+                <th style="width:140px;">Status</th>
+                <th style="width:140px;">Privileges</th>
+                <th style="width:140px;">Account ID</th>
+                <th style="width:180px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in users %}
+                {% set role = (u.role or '')|lower %}
+                {% set is_me = (current_user and u.id == current_user.id) %}
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div class="name-main">
+                        {{ u.name or "Unnamed User" }}
+                      </div>
+                      <div class="name-sub">
+                        {{ u.email }}
                       </div>
                     </div>
-                  </div>
-                </td>
+                  </td>
 
-                <td>
-                  <span class="cell-trunc mono" title="{{ u.email }}">{{ u.email }}</span>
-                </td>
-
-                <td>
-                  <span class="pillx pillx-role" title="{{ (u.role or 'admin')|lower }}">
-                    <span class="dot"></span> {{ (u.role or "admin")|lower }}
-                  </span>
-                </td>
-
-                <td>
-                  {% if u.is_active %}
-                    <span class="pillx pillx-ok" title="Active">
-                      <span class="dot"></span> active
-                    </span>
-                  {% else %}
-                    <span class="pillx pillx-warn" title="Disabled">
-                      <span class="dot"></span> disabled
-                    </span>
-                  {% endif %}
-                </td>
-
-                <td class="mono muted">
-                  {{ u.created_at.strftime("%Y-%m-%d") }}
-                </td>
-
-                <td style="text-align:right;">
-                  <div class="actions">
-                    {% if current_user.id != u.id %}
-                      <form
-                        method="post"
-                        action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
-                        style="display:inline;"
-                      >
-                        <button
-                          type="submit"
-                          class="btn btn-sm"
-                          onclick="return confirm('Are you sure?')"
-                        >
-                          {% if u.is_active %}Disable{% else %}Enable{% endif %}
-                        </button>
-                      </form>
+                  <td>
+                    {% if role == "admin" %}
+                      <span class="pill pill-admin">ADMIN</span>
+                    {% elif role == "ops" %}
+                      <span class="pill pill-ops">OPS</span>
+                    {% elif role == "finance" %}
+                      <span class="pill pill-finance">FINANCE</span>
+                    {% elif role == "support" %}
+                      <span class="pill pill-support">SUPPORT</span>
                     {% else %}
-                      <span class="muted" style="align-self:center; font-weight:900;">You</span>
+                      <span class="pill pill-default">{{ u.role or "UNKNOWN" }}</span>
                     {% endif %}
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="empty">No users found.</div>
-    {% endif %}
+                  </td>
+
+                  <td>
+                    {% if u.is_active %}
+                      <span class="pill pill-active">ACTIVE</span>
+                    {% else %}
+                      <span class="pill pill-disabled">DISABLED</span>
+                    {% endif %}
+                  </td>
+
+                  <td>
+                    {% if u.is_superadmin %}
+                      <span class="pill pill-super">SUPERADMIN</span>
+                    {% else %}
+                      <span class="muted-sm">Standard account</span>
+                    {% endif %}
+                  </td>
+
+                  <td>
+                    <span class="mono">{{ u.id }}</span>
+                  </td>
+
+                  <td>
+                    <div class="actions">
+                      {% if u.is_superadmin %}
+                        <span class="muted-sm">Protected</span>
+                      {% elif is_me %}
+                        <span class="muted-sm">Current account</span>
+                      {% else %}
+                        <form
+                          method="post"
+                          action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
+                          onsubmit="return confirm('Are you sure you want to {% if u.is_active %}disable{% else %}enable{% endif %} this user?');"
+                          style="margin:0;"
+                        >
+                          {% if u.is_active %}
+                            <button type="submit" class="btn-xs btn-xs-danger">Disable</button>
+                          {% else %}
+                            <button type="submit" class="btn-xs btn-xs-success">Enable</button>
+                          {% endif %}
+                        </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty">
+          No system users found yet.
+        </div>
+      {% endif %}
+    </section>
   </div>
 {% endblock %}

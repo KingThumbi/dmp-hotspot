@@ -4,33 +4,67 @@
 
 {% block content %}
   <div class="centered-page">
-    <div class="card" style="width:100%; max-width:820px;">
-      <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px;">
-        <div style="min-width:240px;">
+    <div class="card" style="width:100%; max-width:920px;">
+      <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+        <div style="min-width:260px; flex:1;">
           <h2 style="margin:0;">Create PPPoE Subscription</h2>
-          <div class="muted" style="margin-top:6px;">
-            Admin provisioning: assigns a PPPoE username (<code>D001</code>…<code>D999</code>, then <code>DA0001</code>…)
-            and creates a subscription (supports <b>0 months</b> for a pending shell).
+          <div class="muted" style="margin-top:6px; line-height:1.55;">
+            Admin provisioning for residential PPPoE customers.
+            This form captures the customer record, assigns a PPPoE username
+            (<code>D001</code>…<code>D999</code>, then <code>DA0001</code>…),
+            and creates a subscription.
+            It also supports <b>0 months</b> to create a pending shell without immediate activation.
           </div>
         </div>
 
-        <div class="row" style="gap:10px;">
-          <a class="navlink" href="{{ url_for('admin.subscriptions', svc='pppoe') }}">Back to PPPoE</a>
-          <a class="navlink" href="{{ url_for('admin.subscriptions') }}">All Subscriptions</a>
+        <div class="row" style="gap:10px; flex-wrap:wrap;">
+          <a class="navlink" href="{{ url_for('admin.subscriptions', svc='pppoe') }}">
+            Back to PPPoE
+          </a>
+          <a class="navlink" href="{{ url_for('admin.subscriptions') }}">
+            All Subscriptions
+          </a>
         </div>
       </div>
 
-      <hr style="border:none; border-top:1px solid rgba(2,6,23,.08); margin:14px 0;">
+      <hr style="border:none; border-top:1px solid rgba(2,6,23,.08); margin:16px 0;">
 
       <form method="POST" action="{{ url_for('admin.pppoe_create') }}">
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px;">
           <div style="min-width:0;">
-            <label class="muted" for="phone" style="font-weight:900; font-size:13px; display:block;">
+            <label
+              class="muted"
+              for="full_name"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
+              Customer Name
+            </label>
+            <input
+              id="full_name"
+              name="full_name"
+              type="text"
+              placeholder="e.g. Michael Karanja"
+              autocomplete="name"
+              required
+              title="Customer full name"
+            />
+            <div class="muted" style="font-size:12px; margin-top:6px;">
+              Required for records, support, reminders, and customer identification.
+            </div>
+          </div>
+
+          <div style="min-width:0;">
+            <label
+              class="muted"
+              for="phone"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
               Customer Phone
             </label>
             <input
               id="phone"
               name="phone"
+              type="text"
               placeholder="0712345678 or 254712345678"
               autocomplete="tel"
               inputmode="numeric"
@@ -38,47 +72,44 @@
               title="Customer phone number (0712… or 2547…)"
             />
             <div class="muted" style="font-size:12px; margin-top:6px;">
-              If the customer doesn’t exist, we’ll create them automatically.
+              Used to match an existing customer or create a new one automatically.
             </div>
           </div>
+        </div>
 
+        <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; margin-top:14px;">
           <div style="min-width:0;">
-            <label class="muted" for="package_id" style="font-weight:900; font-size:13px; display:block;">
+            <label
+              class="muted"
+              for="package_id"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
               PPPoE Package
             </label>
-            <select id="package_id" name="package_id" required title="Choose a PPPoE package">
+            <select
+              id="package_id"
+              name="package_id"
+              required
+              title="Choose a PPPoE package"
+            >
               <option value="" selected disabled>Select PPPoE package…</option>
               {% for p in packages %}
-                <option value="{{ p.id }}">{{ p.code }} — {{ p.name }} (KES {{ p.price_kes }})</option>
+                <option value="{{ p.id }}">
+                  {{ p.code }} — {{ p.name }} (KES {{ p.price_kes }})
+                </option>
               {% endfor %}
             </select>
             <div class="muted" style="font-size:12px; margin-top:6px;">
               Only packages with code starting <code>pppoe_</code> are listed.
             </div>
           </div>
-        </div>
-
-        <div style="display:grid; grid-template-columns: 1fr 200px; gap:12px; margin-top:12px;">
-          <div style="min-width:0;">
-            <label class="muted" for="pppoe_username" style="font-weight:900; font-size:13px; display:block;">
-              PPPoE Username
-            </label>
-            <input
-              id="pppoe_username"
-              name="pppoe_username"
-              placeholder="{{ suggested_username }}"
-              autocapitalize="characters"
-              autocomplete="off"
-              title="Leave blank to auto-assign a PPPoE username"
-            />
-            <div class="muted" style="font-size:12px; margin-top:6px;">
-              Leave blank to auto-assign (suggested: <b>{{ suggested_username }}</b>).
-              Format: <code>D001</code>…<code>D999</code>, then <code>DA0001</code>…
-            </div>
-          </div>
 
           <div style="min-width:0;">
-            <label class="muted" for="months" style="font-weight:900; font-size:13px; display:block;">
+            <label
+              class="muted"
+              for="months"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
               Months
             </label>
             <input
@@ -92,39 +123,101 @@
               title="Months (0 = create a pending subscription shell without activation)"
             />
             <div class="muted" style="font-size:12px; margin-top:6px;">
-              0–36 months. Use <b>0</b> to create a pending subscription (no expiry set, no transaction).
+              Use <b>0</b> to create a pending subscription shell with no expiry and no immediate activation.
             </div>
           </div>
         </div>
 
-        <div style="margin-top:14px;">
-          <label for="set_customer_pppoe" style="display:flex; gap:10px; align-items:flex-start;">
-            <input id="set_customer_pppoe" type="checkbox" name="set_customer_pppoe" checked />
-            <div>
-              <div style="font-weight:900;">Save PPPoE creds on customer</div>
-              <div class="muted" style="font-size:12px;">
-                Stores <code>pppoe_username</code> on the customer record and generates a password if missing.
-              </div>
+        <div style="display:grid; grid-template-columns:minmax(0, 1fr) 220px; gap:14px; margin-top:14px;">
+          <div style="min-width:0;">
+            <label
+              class="muted"
+              for="pppoe_username"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
+              PPPoE Username / Account No.
+            </label>
+            <input
+              id="pppoe_username"
+              name="pppoe_username"
+              placeholder="{{ suggested_username }}"
+              autocapitalize="characters"
+              autocomplete="off"
+              title="Leave blank to auto-assign a PPPoE username"
+            />
+            <div class="muted" style="font-size:12px; margin-top:6px;">
+              Leave blank to auto-assign.
+              Suggested: <b>{{ suggested_username }}</b>.
+              Format: <code>D001</code>…<code>D999</code>, then <code>DA0001</code>…
             </div>
-          </label>
+          </div>
+
+          <div style="min-width:0;">
+            <label
+              class="muted"
+              for="account_preview"
+              style="font-weight:900; font-size:13px; display:block;"
+            >
+              Account Link
+            </label>
+            <input
+              id="account_preview"
+              type="text"
+              value="Saved to customer account number"
+              disabled
+              style="background:rgba(2,6,23,.04); color:rgba(2,6,23,.72);"
+            />
+            <div class="muted" style="font-size:12px; margin-top:6px;">
+              The PPPoE username can also serve as the customer account reference.
+            </div>
+          </div>
         </div>
 
-        <div style="margin-top:10px;">
-          <label for="enable_now" style="display:flex; gap:10px; align-items:flex-start;">
-            <input id="enable_now" type="checkbox" name="enable_now" />
-            <div>
-              <div style="font-weight:900;">Provision / Enable on router now</div>
-              <div class="muted" style="font-size:12px;">
-                Requires <code>ROUTER_AGENT_ENABLED=true</code>. If off, DB-only.
-                <span style="opacity:.8;">(If Months is 0, router enable is skipped.)</span>
+        <div style="margin-top:16px; padding:14px; border:1px solid rgba(2,6,23,.08); border-radius:14px; background:rgba(248,250,252,.65);">
+          <div style="font-weight:900; margin-bottom:10px;">Provisioning Options</div>
+
+          <div style="display:grid; grid-template-columns:1fr; gap:10px;">
+            <label for="set_customer_pppoe" style="display:flex; gap:10px; align-items:flex-start;">
+              <input id="set_customer_pppoe" type="checkbox" name="set_customer_pppoe" checked />
+              <div>
+                <div style="font-weight:900;">Save PPPoE credentials on customer</div>
+                <div class="muted" style="font-size:12px;">
+                  Stores the PPPoE username on the customer record and generates a password if missing.
+                </div>
               </div>
-            </div>
-          </label>
+            </label>
+
+            <label for="enable_now" style="display:flex; gap:10px; align-items:flex-start;">
+              <input id="enable_now" type="checkbox" name="enable_now" />
+              <div>
+                <div style="font-weight:900;">Provision / enable on router now</div>
+                <div class="muted" style="font-size:12px;">
+                  Requires <code>ROUTER_AGENT_ENABLED=true</code>.
+                  If disabled, the record is created in the database only.
+                  <span style="opacity:.85;">If Months is <b>0</b>, router enable is skipped.</span>
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
 
-        <div class="row" style="gap:10px; margin-top:16px;">
+        <div style="margin-top:16px; padding:14px; border:1px solid rgba(245,158,11,.22); border-radius:14px; background:rgba(255,251,235,.7);">
+          <div style="font-weight:900; margin-bottom:6px;">Operational Notes</div>
+          <ul style="margin:0; padding-left:18px; color:rgba(2,6,23,.78); line-height:1.55;">
+            <li>Customer name is now required for proper records and personalized reminders.</li>
+            <li>If the phone already exists, the existing customer is reused and missing details can be backfilled.</li>
+            <li>Use <b>0 months</b> when you want to create a customer shell before payment or activation.</li>
+          </ul>
+        </div>
+
+        <div class="row" style="gap:10px; margin-top:18px; flex-wrap:wrap;">
           <button type="submit">Create PPPoE Subscription</button>
-          <a href="{{ url_for('admin.subscriptions', svc='pppoe') }}" style="text-decoration:none;">Cancel</a>
+          <a
+            href="{{ url_for('admin.subscriptions', svc='pppoe') }}"
+            style="text-decoration:none;"
+          >
+            Cancel
+          </a>
         </div>
       </form>
     </div>
