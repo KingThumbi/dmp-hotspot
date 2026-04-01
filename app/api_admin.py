@@ -6,9 +6,24 @@ from typing import Any
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
-from .models import db, Customer, PublicLead, Subscription, Ticket, Transaction
+from app.extensions import db
+from app.models import (
+    Customer,
+    PublicLead,
+    RenewalReminder,
+    Subscription,
+    Ticket,
+    Transaction,
+)
+from app.services.reminders import (
+    build_renewal_message,
+    get_customer_display_name,
+    get_customer_phone,
+    send_sms,
+    send_whatsapp,
+)
 
 api_admin_bp = Blueprint("api_admin", __name__)
 
@@ -16,7 +31,6 @@ api_admin_bp = Blueprint("api_admin", __name__)
 # =========================================================
 # Core helpers
 # =========================================================
-
 def _json_error(message: str, status: int = 400):
     return jsonify({"ok": False, "error": message}), status
 
@@ -43,8 +57,6 @@ def _is_admin_user() -> bool:
     - requires an authenticated user
     - if a role exists, it must look like an admin/staff role
     - if no role attribute exists, authenticated user is allowed
-
-    If your production auth uses a stricter decorator/helper, swap this logic.
     """
     if not _user_is_authenticated():
         return False
@@ -130,7 +142,6 @@ def _current_user_payload() -> dict[str, Any]:
 # =========================================================
 # Dashboard counters
 # =========================================================
-
 def _count_active_subscriptions() -> int:
     try:
         if hasattr(Subscription, "status"):
@@ -180,15 +191,9 @@ def _count_public_leads() -> int:
 
 
 def _count_unhandled_public_leads() -> int:
-    """
-    Some deployments may not expose `handled` on PublicLead.
-    Fall back to total leads if the field is unavailable.
-    """
     try:
         if hasattr(PublicLead, "handled"):
-            return _safe_count(
-                PublicLead.query.filter(PublicLead.handled.is_(False))
-            )
+            return _safe_count(PublicLead.query.filter(PublicLead.handled.is_(False)))
         return _count_public_leads()
     except Exception:
         return _count_public_leads()
@@ -197,7 +202,6 @@ def _count_unhandled_public_leads() -> int:
 # =========================================================
 # Serializers
 # =========================================================
-
 def _serialize_public_lead(lead: PublicLead) -> dict[str, Any]:
     return {
         "id": getattr(lead, "id", None),
@@ -311,7 +315,6 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
     if package is not None:
         package_name = getattr(package, "name", None) or getattr(package, "code", None)
 
-    # Prefer subscription-linked location first
     location_name = None
     location_id = getattr(subscription, "location_id", None) if hasattr(subscription, "location_id") else None
 
@@ -322,7 +325,6 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
             or getattr(location, "estate", None)
         )
 
-    # Fallback: derive from customer's primary/first location
     if not location_name and customer is not None:
         customer_locations = None
 
@@ -333,7 +335,6 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
 
         if customer_locations:
             chosen_location = None
-
             for loc in customer_locations:
                 if getattr(loc, "is_primary", False):
                     chosen_location = loc
@@ -374,6 +375,7 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
         "updated_at": _iso(getattr(subscription, "updated_at", None)),
     }
 
+
 def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
     customer = getattr(tx, "customer", None)
     package = getattr(tx, "package", None)
@@ -403,10 +405,45 @@ def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
     }
 
 
+def _serialize_renewal_reminder(row: RenewalReminder) -> dict[str, Any]:
+    customer = getattr(row, "customer", None)
+    subscription = getattr(row, "subscription", None)
+
+    customer_name = (
+        getattr(customer, "name", None)
+        or getattr(customer, "full_name", None)
+        or "Customer"
+    )
+
+    account_number = getattr(customer, "account_number", None)
+    service_type = getattr(subscription, "service_type", None)
+    expires_at = getattr(subscription, "expires_at", None)
+
+    return {
+        "id": row.id,
+        "customer_id": row.customer_id,
+        "customer_name": customer_name,
+        "account_number": account_number,
+        "subscription_id": row.subscription_id,
+        "service_type": service_type,
+        "expires_at": _iso(expires_at),
+        "channel": row.channel,
+        "reminder_type": row.reminder_type,
+        "phone": row.phone,
+        "recipient_name": row.recipient_name,
+        "message_body": row.message_body,
+        "status": row.status,
+        "provider": row.provider,
+        "provider_message_id": row.provider_message_id,
+        "error_message": row.error_message,
+        "sent_at": _iso(row.sent_at),
+        "created_at": _iso(row.created_at),
+    }
+
+
 # =========================================================
 # Customer service-state helpers
 # =========================================================
-
 def _subscriptions_for_customer_query(customer_id: int):
     query = Subscription.query.filter(Subscription.customer_id == customer_id)
 
@@ -437,7 +474,6 @@ def _set_customer_service_state(
 
         if hasattr(sub, "status"):
             current_status = (getattr(sub, "status", None) or "").strip().lower()
-
             if activate:
                 if current_status in {"", "inactive", "suspended", "active"}:
                     sub.status = "active"
@@ -472,7 +508,8 @@ def _sync_customer_to_mikrotik_later(customer: Customer, activate: bool):
     - Hotspot: disable/enable user
     - Disconnect active sessions immediately on suspend
     """
-    pass
+    _ = (customer, activate)
+    return None
 
 
 def _customer_detail_payload(customer: Customer) -> dict[str, Any]:
@@ -501,10 +538,7 @@ def _customer_detail_payload(customer: Customer) -> dict[str, Any]:
         if hasattr(customer, rel_name):
             try:
                 rel_items = getattr(customer, rel_name) or []
-                locations = [
-                    _serialize_customer_location(item)
-                    for item in rel_items
-                ]
+                locations = [_serialize_customer_location(item) for item in rel_items]
                 break
             except Exception:
                 locations = []
@@ -517,19 +551,22 @@ def _customer_detail_payload(customer: Customer) -> dict[str, Any]:
     }
 
 
+def _days_left_from_reminder_type(reminder_type: str) -> int:
+    mapping = {
+        "days_before_2": 2,
+        "days_before_1": 1,
+        "on_disconnect": 0,
+    }
+    return mapping.get(reminder_type, 0)
+
+
 # =========================================================
 # Auth / dashboard
 # =========================================================
-
 @api_admin_bp.get("/api/admin/auth/me")
 @admin_api_required
 def admin_auth_me():
-    return jsonify(
-        {
-            "ok": True,
-            "user": _current_user_payload(),
-        }
-    )
+    return jsonify({"ok": True, "user": _current_user_payload()})
 
 
 @api_admin_bp.get("/api/admin/dashboard/summary")
@@ -544,14 +581,12 @@ def admin_dashboard_summary():
         "public_leads": _count_public_leads(),
         "new_public_leads": _count_unhandled_public_leads(),
     }
-
     return jsonify({"ok": True, "data": data})
 
 
 # =========================================================
 # Public leads
 # =========================================================
-
 @api_admin_bp.get("/api/admin/public-leads")
 @admin_api_required
 def admin_public_leads():
@@ -606,7 +641,6 @@ def admin_public_leads():
 # =========================================================
 # Tickets
 # =========================================================
-
 @api_admin_bp.get("/api/admin/tickets")
 @admin_api_required
 def admin_tickets():
@@ -693,7 +727,6 @@ def admin_ticket_detail(ticket_id: int):
 # =========================================================
 # Customers
 # =========================================================
-
 @api_admin_bp.get("/api/admin/customers")
 @admin_api_required
 def admin_customers():
@@ -761,12 +794,7 @@ def admin_customer_detail(customer_id: int):
     if not customer:
         return _json_error("Customer not found.", 404)
 
-    return jsonify(
-        {
-            "ok": True,
-            "data": _customer_detail_payload(customer),
-        }
-    )
+    return jsonify({"ok": True, "data": _customer_detail_payload(customer)})
 
 
 @api_admin_bp.post("/api/admin/customers/<int:customer_id>/suspend")
@@ -789,10 +817,6 @@ def admin_customer_suspend(customer_id: int):
         )
 
     _set_customer_service_state(customer, activate=False, reason=reason)
-
-    # Future network enforcement hook
-    # _sync_customer_to_mikrotik_later(customer, activate=False)
-
     db.session.commit()
 
     customer = Customer.query.get(customer_id)
@@ -826,10 +850,6 @@ def admin_customer_reconnect(customer_id: int):
         )
 
     _set_customer_service_state(customer, activate=True, reason=reason)
-
-    # Future network enforcement hook
-    # _sync_customer_to_mikrotik_later(customer, activate=True)
-
     db.session.commit()
 
     customer = Customer.query.get(customer_id)
@@ -846,7 +866,6 @@ def admin_customer_reconnect(customer_id: int):
 # =========================================================
 # Subscriptions
 # =========================================================
-
 @api_admin_bp.get("/api/admin/subscriptions")
 @admin_api_required
 def admin_subscriptions():
@@ -872,12 +891,16 @@ def admin_subscriptions():
             filters.append(Subscription.status.ilike(f"%{q}%"))
 
         try:
-            filters.append(Subscription.customer.has(Customer.full_name.ilike(f"%{q}%")))
+            filters.append(
+                Subscription.customer.has(Customer.full_name.ilike(f"%{q}%"))
+            )
         except Exception:
             pass
 
         try:
-            filters.append(Subscription.customer.has(Customer.account_number.ilike(f"%{q}%")))
+            filters.append(
+                Subscription.customer.has(Customer.account_number.ilike(f"%{q}%"))
+            )
         except Exception:
             pass
 
@@ -918,9 +941,8 @@ def admin_subscriptions():
 
 
 # =========================================================
-# Transactions (real billing ledger)
+# Transactions
 # =========================================================
-
 @api_admin_bp.get("/api/admin/transactions")
 @admin_api_required
 def admin_transactions():
@@ -985,11 +1007,194 @@ def admin_transaction_detail(tx_id: int):
     if not tx:
         return _json_error("Transaction not found.", 404)
 
+    return jsonify({"ok": True, "data": {"transaction": _serialize_transaction(tx)}})
+
+
+# =========================================================
+# Renewal reminders
+# =========================================================
+@api_admin_bp.get("/api/admin/reminders")
+@admin_api_required
+def api_admin_reminders():
+    q = (request.args.get("q") or "").strip()
+    status = (request.args.get("status") or "").strip()
+    channel = (request.args.get("channel") or "").strip()
+    reminder_type = (request.args.get("reminder_type") or "").strip()
+    limit = min(max(_parse_int(request.args.get("limit"), 100), 1), 300)
+
+    query = (
+        db.session.query(RenewalReminder)
+        .join(Customer, Customer.id == RenewalReminder.customer_id)
+        .join(Subscription, Subscription.id == RenewalReminder.subscription_id)
+    )
+
+    if status:
+        query = query.filter(RenewalReminder.status == status)
+
+    if channel:
+        query = query.filter(RenewalReminder.channel == channel)
+
+    if reminder_type:
+        query = query.filter(RenewalReminder.reminder_type == reminder_type)
+
+    if q:
+        like = f"%{q}%"
+        filters = [
+            RenewalReminder.phone.ilike(like),
+            RenewalReminder.status.ilike(like),
+            RenewalReminder.channel.ilike(like),
+            RenewalReminder.reminder_type.ilike(like),
+        ]
+
+        if hasattr(Customer, "name"):
+            filters.append(Customer.name.ilike(like))
+        if hasattr(Customer, "full_name"):
+            filters.append(Customer.full_name.ilike(like))
+        if hasattr(Customer, "phone"):
+            filters.append(Customer.phone.ilike(like))
+        if hasattr(Customer, "account_number"):
+            filters.append(Customer.account_number.ilike(like))
+
+        query = query.filter(or_(*filters))
+
+    items = query.order_by(RenewalReminder.created_at.desc()).limit(limit).all()
+
     return jsonify(
         {
             "ok": True,
-            "data": {
-                "transaction": _serialize_transaction(tx),
+            "items": [_serialize_renewal_reminder(item) for item in items],
+        }
+    )
+
+
+@api_admin_bp.get("/api/admin/reminders/summary")
+@admin_api_required
+def api_admin_reminders_summary():
+    base = RenewalReminder.query
+
+    total = base.count()
+    sent = base.filter(RenewalReminder.status == "sent").count()
+    failed = base.filter(RenewalReminder.status == "failed").count()
+    skipped = base.filter(RenewalReminder.status == "skipped").count()
+
+    sms = base.filter(RenewalReminder.channel == "sms").count()
+    whatsapp = base.filter(RenewalReminder.channel == "whatsapp").count()
+
+    by_type_rows = (
+        db.session.query(
+            RenewalReminder.reminder_type,
+            func.count(RenewalReminder.id),
+        )
+        .group_by(RenewalReminder.reminder_type)
+        .all()
+    )
+
+    by_type = {key: count for key, count in by_type_rows}
+
+    return jsonify(
+        {
+            "ok": True,
+            "summary": {
+                "total": total,
+                "sent": sent,
+                "failed": failed,
+                "skipped": skipped,
+                "sms": sms,
+                "whatsapp": whatsapp,
+                "by_type": by_type,
             },
         }
+    )
+
+
+@api_admin_bp.post("/api/admin/reminders/<int:reminder_id>/resend")
+@admin_api_required
+def api_admin_resend_reminder(reminder_id: int):
+    row = RenewalReminder.query.get(reminder_id)
+    if not row:
+        return _json_error("Reminder record not found.", 404)
+
+    customer = Customer.query.get(row.customer_id)
+    if not customer:
+        return _json_error("Customer not found.", 404)
+
+    subscription = Subscription.query.get(row.subscription_id)
+    if not subscription:
+        return _json_error("Subscription not found.", 404)
+
+    channel = (row.channel or "").strip().lower()
+    reminder_type = (row.reminder_type or "").strip()
+    days_left = _days_left_from_reminder_type(reminder_type)
+
+    if channel not in {"sms", "whatsapp"}:
+        return _json_error("Unsupported reminder channel.", 400)
+
+    phone = get_customer_phone(customer)
+    recipient_name = get_customer_display_name(customer)
+    message_body = build_renewal_message(customer, subscription, days_left)
+
+    if not phone:
+        new_row = RenewalReminder(
+            customer_id=customer.id,
+            subscription_id=subscription.id,
+            channel=channel,
+            reminder_type=reminder_type,
+            phone=None,
+            recipient_name=recipient_name,
+            message_body=message_body,
+            status="failed",
+            provider=row.provider,
+            provider_message_id=None,
+            error_message="Missing or invalid phone number",
+            sent_at=None,
+            is_manual_resend=True,
+        )
+        db.session.add(new_row)
+        db.session.commit()
+
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Missing or invalid phone number.",
+                    "item": _serialize_renewal_reminder(new_row),
+                }
+            ),
+            400,
+        )
+
+    if channel == "sms":
+        ok, provider_message_id, error_message = send_sms(phone, message_body)
+        provider_name = row.provider or "sms"
+    else:
+        ok, provider_message_id, error_message = send_whatsapp(phone, message_body)
+        provider_name = row.provider or "whatsapp"
+
+        new_row = RenewalReminder(
+            customer_id=customer.id,
+            subscription_id=subscription.id,
+            channel=channel,
+            reminder_type=reminder_type,
+            phone=phone,
+            recipient_name=recipient_name,
+            message_body=message_body,
+            status="sent" if ok else "failed",
+            provider=provider_name,
+            provider_message_id=provider_message_id,
+            error_message=error_message,
+            sent_at=_now_utc() if ok else None,
+            is_manual_resend=True,
+        )
+        db.session.add(new_row)
+        db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "ok": ok,
+                "message": "Reminder resent successfully." if ok else "Reminder resend failed.",
+                "item": _serialize_renewal_reminder(new_row),
+            }
+        ),
+        200 if ok else 500,
     )

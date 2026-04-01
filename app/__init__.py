@@ -124,12 +124,14 @@ def create_app() -> Flask:
     from .mpesa import mpesa_bp
     from .api_public import api_public_bp
     from .api_admin import api_admin_bp
-    
+    from .api_whatsapp import api_whatsapp_bp
+
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(mpesa_bp)  # /api/mpesa/*
     app.register_blueprint(api_public_bp)
     app.register_blueprint(api_admin_bp)
+    app.register_blueprint(api_whatsapp_bp)  # /api/whatsapp/*
     # ---------------------------------------------------------
     # 9) Register CLI module commands (router/audit/resync/etc.)
     # ---------------------------------------------------------

@@ -17,6 +17,7 @@ import TransactionsPage from "./pages/admin/Transactions";
 import CustomerDetailPage from "./pages/admin/CustomerDetail";
 import TicketDetailPage from "./pages/admin/TicketDetail";
 import TransactionDetailPage from "./pages/admin/TransactionDetail";
+import RenewalRemindersPage from "./pages/admin/RenewalReminders";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
 
         {/* Admin UI */}
         <Route path="/admin-ui" element={<AdminLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<AdminDashboardPage />} />
           <Route path="leads" element={<PublicLeadsPage />} />
           <Route path="tickets" element={<TicketsPage />} />
@@ -43,7 +45,8 @@ export default function App() {
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="subscriptions" element={<SubscriptionsPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
-          <Route path="transactions/:id" element={<TransactionDetailPage />} />          
+          <Route path="transactions/:id" element={<TransactionDetailPage />} />
+          <Route path="reminders" element={<RenewalRemindersPage />} />
         </Route>
 
         {/* Catch-all */}

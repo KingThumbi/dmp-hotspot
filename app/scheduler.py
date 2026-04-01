@@ -1,21 +1,27 @@
-# app/scheduler.py
 from __future__ import annotations
 
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import List, Tuple
+
+from app.extensions import db
+from app.models import MpesaPayment, Subscription
+from app.services.mpesa_daraja import (
+    load_mpesa_config as load_mpesa_cfg_daraja,
+    stk_query as daraja_stk_query,
+)
 from app.services.pppoe_reconcile import reconcile_subscription_router_state
-from .extensions import db
-from .models import MpesaPayment, Subscription
-from .services.router_actions import disconnect_subscription
-from .services.mikrotik_hotspot import disable_hotspot_user, kick_hotspot_active
-from .services.mpesa_daraja import load_mpesa_config as load_mpesa_cfg_daraja, stk_query as daraja_stk_query
+from app.services.reminders import (
+    send_disconnect_reminder,
+    send_due_renewal_reminders,
+)
+from app.services.router_actions import disconnect_subscription
 
 pppoe_log = logging.getLogger("pppoe.scheduler")
 hotspot_log = logging.getLogger("hotspot.scheduler")
 all_log = logging.getLogger("expiry.scheduler")
 recon_log = logging.getLogger("mpesa.reconcile")
+reminder_log = logging.getLogger("renewal.reminders")
 
 
 def _utcnow_naive() -> datetime:
@@ -24,7 +30,7 @@ def _utcnow_naive() -> datetime:
 
 
 def _now_utc_aware() -> datetime:
-    """mpesa_payments uses timestamptz, so use aware UTC."""
+    """M-Pesa payment timestamps use aware UTC datetimes."""
     return datetime.now(timezone.utc)
 
 
@@ -37,7 +43,7 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 def _okish(res) -> bool:
     """
-    Normalize "ok" status from different return shapes.
+    Normalize 'ok' status from different return shapes.
 
     Supported:
     - object with .ok attribute
@@ -51,8 +57,45 @@ def _okish(res) -> bool:
     return bool(getattr(res, "ok", True))
 
 
+def _send_disconnect_notice_if_possible(
+    sub: Subscription,
+    user: str,
+    *,
+    service_label: str,
+) -> None:
+    """
+    Best-effort send of the final disconnection reminder after successful expiry handling.
+    """
+    try:
+        customer = getattr(sub, "customer", None)
+        if customer is None:
+            reminder_log.warning(
+                "%s disconnect reminder skipped | sub_id=%s user=%s reason=no_customer_relation",
+                service_label,
+                sub.id,
+                user,
+            )
+            return
+
+        reminder_result = send_disconnect_reminder(sub, customer)
+        reminder_log.info(
+            "%s disconnect reminder sent | sub_id=%s user=%s result=%s",
+            service_label,
+            sub.id,
+            user,
+            reminder_result,
+        )
+    except Exception:
+        reminder_log.exception(
+            "%s disconnect reminder failed | sub_id=%s user=%s",
+            service_label,
+            sub.id,
+            user,
+        )
+
+
 # -------------------------------------------------------------------
-# Expiry enforcement (existing behavior preserved)
+# Expiry enforcement
 # -------------------------------------------------------------------
 def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
     """
@@ -64,8 +107,7 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
         now = _utcnow_naive()
 
         expired = (
-            Subscription.query
-            .filter(
+            Subscription.query.filter(
                 Subscription.service_type == "pppoe",
                 Subscription.status == "active",
                 Subscription.expires_at.isnot(None),
@@ -132,6 +174,11 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
                         user,
                         result,
                     )
+                    _send_disconnect_notice_if_possible(
+                        sub,
+                        user,
+                        service_label="PPPoE",
+                    )
 
             except Exception:
                 pppoe_log.exception(
@@ -139,6 +186,7 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
                     sub.id,
                     user,
                 )
+
 
 def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
     """
@@ -150,8 +198,7 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
         now = _utcnow_naive()
 
         expired = (
-            Subscription.query
-            .filter(
+            Subscription.query.filter(
                 Subscription.service_type == "hotspot",
                 Subscription.status == "active",
                 Subscription.expires_at.isnot(None),
@@ -218,6 +265,11 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
                         user,
                         result,
                     )
+                    _send_disconnect_notice_if_possible(
+                        sub,
+                        user,
+                        service_label="Hotspot",
+                    )
 
             except Exception:
                 hotspot_log.exception(
@@ -226,15 +278,47 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
                     user,
                 )
 
+
 def enforce_all_expiry(app, dry_run: bool = True) -> None:
-    """Run both PPPoE + Hotspot enforcement in one call."""
+    """Run both PPPoE and Hotspot expiry enforcement in one call."""
     all_log.info("Running enforce_all_expiry(dry_run=%s)", dry_run)
     enforce_pppoe_expiry(app, dry_run=dry_run)
     enforce_hotspot_expiry(app, dry_run=dry_run)
 
 
 # -------------------------------------------------------------------
-# M-Pesa reconciliation layer (NEW)
+# Renewal reminders
+# -------------------------------------------------------------------
+def run_renewal_reminders_2d(app) -> None:
+    """Send renewal reminders for subscriptions expiring in 2 days."""
+    with app.app_context():
+        if not _bool_env("RENEWAL_REMINDERS_ENABLED", False):
+            reminder_log.info("2-day renewal reminders skipped: feature disabled")
+            return
+
+        try:
+            summary = send_due_renewal_reminders(days_left=2)
+            reminder_log.info("2-day renewal reminder summary: %s", summary)
+        except Exception:
+            reminder_log.exception("2-day renewal reminder job failed")
+
+
+def run_renewal_reminders_1d(app) -> None:
+    """Send renewal reminders for subscriptions expiring in 1 day."""
+    with app.app_context():
+        if not _bool_env("RENEWAL_REMINDERS_ENABLED", False):
+            reminder_log.info("1-day renewal reminders skipped: feature disabled")
+            return
+
+        try:
+            summary = send_due_renewal_reminders(days_left=1)
+            reminder_log.info("1-day renewal reminder summary: %s", summary)
+        except Exception:
+            reminder_log.exception("1-day renewal reminder job failed")
+
+
+# -------------------------------------------------------------------
+# M-Pesa reconciliation layer
 # -------------------------------------------------------------------
 def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
     """
@@ -263,11 +347,12 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
         timeout_cutoff = now - timedelta(seconds=timeout_after)
 
         rows = (
-            MpesaPayment.query
-            .filter(MpesaPayment.status == "pending")
-            .filter(MpesaPayment.created_at <= pending_cutoff)
-            .filter(MpesaPayment.checkout_request_id.isnot(None))
-            .filter(MpesaPayment.reconcile_attempts < max_attempts)
+            MpesaPayment.query.filter(
+                MpesaPayment.status == "pending",
+                MpesaPayment.created_at <= pending_cutoff,
+                MpesaPayment.checkout_request_id.isnot(None),
+                MpesaPayment.reconcile_attempts < max_attempts,
+            )
             .order_by(MpesaPayment.created_at.asc())
             .limit(50)
             .all()
@@ -282,7 +367,6 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
 
         for p in rows:
             try:
-                # timeout guard (single write path)
                 if p.created_at <= timeout_cutoff:
                     mark_payment_failed(
                         p,
@@ -295,12 +379,14 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
                     )
                     continue
 
-                resp = daraja_stk_query(checkout_request_id=p.checkout_request_id, cfg=cfg)
+                resp = daraja_stk_query(
+                    checkout_request_id=p.checkout_request_id,
+                    cfg=cfg,
+                )
 
                 rc = resp.get("ResultCode")
                 rd = resp.get("ResultDesc") or ""
 
-                # update reconcile tracking (single increment)
                 p.reconcile_attempts = int(p.reconcile_attempts or 0) + 1
                 p.last_reconcile_at = now
                 p.external_updated_at = now
@@ -313,12 +399,10 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
 
                 p.result_desc = rd
 
-                # Persist tracking updates once
                 db.session.add(p)
                 db.session.commit()
 
                 if str(rc) == "0":
-                    # Success: STK query usually doesn't provide receipt, but we can still activate.
                     finalize_success_and_activate(
                         p,
                         mpesa_receipt=None,
@@ -326,7 +410,6 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
                         raw={"source": "stk_query", "resp": resp},
                     )
 
-                    # Optional label after recovering:
                     p.status = "reconciled"
                     p.updated_at = now
                     db.session.add(p)
@@ -352,7 +435,11 @@ def reconcile_pending_mpesa(app, dry_run: bool = True) -> None:
                     )
 
             except Exception:
-                recon_log.exception("[reconcile] error payment_id=%s checkout=%s", p.id, p.checkout_request_id)
+                recon_log.exception(
+                    "[reconcile] error payment_id=%s checkout=%s",
+                    p.id,
+                    p.checkout_request_id,
+                )
 
 
 def retry_activation_failed(app, dry_run: bool = True) -> None:
@@ -375,10 +462,11 @@ def retry_activation_failed(app, dry_run: bool = True) -> None:
         now = _now_utc_aware()
 
         rows = (
-            MpesaPayment.query
-            .filter(MpesaPayment.status.in_(["activation_failed", "success"]))
-            .filter(MpesaPayment.subscription_id.isnot(None))
-            .filter(MpesaPayment.activation_attempts < max_retry)
+            MpesaPayment.query.filter(
+                MpesaPayment.status.in_(["activation_failed", "success"]),
+                MpesaPayment.subscription_id.isnot(None),
+                MpesaPayment.activation_attempts < max_retry,
+            )
             .order_by(MpesaPayment.updated_at.asc())
             .limit(50)
             .all()
@@ -412,6 +500,7 @@ def retry_activation_failed(app, dry_run: bool = True) -> None:
                 db.session.add(p)
                 db.session.commit()
                 recon_log.exception("[activation-retry] failed payment_id=%s", p.id)
+
 
 def reconcile_router_state(app, dry_run: bool = True) -> None:
     """

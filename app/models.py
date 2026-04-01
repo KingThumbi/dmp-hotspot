@@ -1093,3 +1093,55 @@ class SubscriptionChangeLog(db.Model):
         server_default=func.now(),
         index=True,
     )
+
+class RenewalReminder(db.Model):
+    __tablename__ = "renewal_reminders"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
+    subscription_id = db.Column(db.Integer, db.ForeignKey("subscriptions.id"), nullable=False, index=True)
+
+    # sms | whatsapp
+    channel = db.Column(db.String(20), nullable=False, index=True)
+
+    # days_before_2 | days_before_1 | same_day
+    reminder_type = db.Column(db.String(32), nullable=False, index=True)
+
+    phone = db.Column(db.String(32), nullable=True)
+    recipient_name = db.Column(db.String(255), nullable=True)
+
+    message_body = db.Column(db.Text, nullable=True)
+
+    # pending | sent | failed | skipped
+    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+
+    provider = db.Column(db.String(50), nullable=True)
+    provider_message_id = db.Column(db.String(255), nullable=True)
+
+    error_message = db.Column(db.Text, nullable=True)
+
+    sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    
+    is_manual_resend: bool = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.text("false"),
+        index=True,
+    )
+    
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    
+    customer = db.relationship("Customer", backref=db.backref("renewal_reminders", lazy="dynamic"))
+    subscription = db.relationship("Subscription", backref=db.backref("renewal_reminders", lazy="dynamic"))
+
+    __table_args__ = (
+        db.Index(
+            "ix_renewal_reminders_unique_cycle",
+            "subscription_id",
+            "channel",
+            "reminder_type",
+        ),
+    )    
