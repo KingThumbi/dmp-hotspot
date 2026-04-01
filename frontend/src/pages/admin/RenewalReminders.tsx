@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { apiGetWithAuth } from "../../lib/api";
+import { apiGetWithAuth, apiPostWithAuth } from "../../lib/api";
 import { formatDateTime } from "../../utils/format";
 
 type ReminderItem = {
@@ -33,6 +33,23 @@ type ReminderSummary = {
   sms: number;
   whatsapp: number;
   by_type: Record<string, number>;
+};
+
+type RemindersResponse = {
+  ok: boolean;
+  items: ReminderItem[];
+};
+
+type ReminderSummaryResponse = {
+  ok: boolean;
+  summary: ReminderSummary;
+};
+
+type ResendResponse = {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  item?: ReminderItem;
 };
 
 function statusTone(status: string) {
@@ -121,12 +138,18 @@ export default function RenewalReminders() {
       params.set("limit", "150");
 
       const [itemsRes, summaryRes] = await Promise.all([
-        apiGetWithAuth(`/api/admin/reminders?${params.toString()}`),
-        apiGetWithAuth("/api/admin/reminders/summary"),
+        apiGetWithAuth<RemindersResponse>(
+          `/api/admin/reminders?${params.toString()}`
+        ),
+        apiGetWithAuth<ReminderSummaryResponse>("/api/admin/reminders/summary"),
       ]);
 
       setItems(itemsRes.items || []);
       setSummary(summaryRes.summary || null);
+    } catch (error) {
+      console.error("Failed to load reminder data", error);
+      setItems([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -136,10 +159,10 @@ export default function RenewalReminders() {
     try {
       setResendingId(item.id);
 
-      // Wire this to your backend resend endpoint when ready.
-      // Example:
-      // await apiPostWithAuth(`/api/admin/reminders/${item.id}/resend`, {});
-      console.log("Resend reminder:", item.id, item);
+      await apiPostWithAuth<ResendResponse>(
+        `/api/admin/reminders/${item.id}/resend`,
+        {}
+      );
 
       await loadData();
     } catch (error) {
@@ -157,7 +180,6 @@ export default function RenewalReminders() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -179,7 +201,6 @@ export default function RenewalReminders() {
         </div>
       </div>
 
-      {/* Summary cards */}
       {summary ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <StatCard label="Total" value={summary.total} />
@@ -191,7 +212,6 @@ export default function RenewalReminders() {
         </div>
       ) : null}
 
-      {/* Filters */}
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input
@@ -247,7 +267,6 @@ export default function RenewalReminders() {
         </div>
       </div>
 
-      {/* Reminder log table */}
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -288,7 +307,6 @@ export default function RenewalReminders() {
               ) : (
                 items.map((item) => (
                   <tr key={item.id} className="align-top">
-                    {/* Customer quick navigation */}
                     <td className="px-4 py-4">
                       <Link
                         to={`/admin-ui/customers/${item.customer_id}`}
@@ -303,7 +321,6 @@ export default function RenewalReminders() {
                       </div>
                     </td>
 
-                    {/* Account quick navigation */}
                     <td className="px-4 py-4">
                       {item.account_number ? (
                         <Link
@@ -395,7 +412,6 @@ export default function RenewalReminders() {
         </div>
       </div>
 
-      {/* Reminder type totals */}
       {summary?.by_type ? (
         <div className="grid gap-4 md:grid-cols-3">
           <StatCard

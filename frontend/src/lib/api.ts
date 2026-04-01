@@ -1,6 +1,9 @@
 const BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
-async function parseJsonSafe(res: Response) {
+// -----------------------------
+// Helpers
+// -----------------------------
+async function parseJsonSafe(res: Response): Promise<any> {
   try {
     return await res.json();
   } catch {
@@ -8,18 +11,36 @@ async function parseJsonSafe(res: Response) {
   }
 }
 
-function extractErrorMessage(payload: any, status: number) {
-  return payload?.error || payload?.message || `Request failed (${status})`;
+function extractErrorMessage(payload: any, status: number): string {
+  return (
+    payload?.error ||
+    payload?.message ||
+    `Request failed (${status})`
+  );
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+// -----------------------------
+// Core request function (DRY)
+// -----------------------------
+type RequestOptions = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
+  auth?: boolean;
+};
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = "GET", body, auth = false } = options;
+
   let res: Response;
 
   try {
     res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method,
+      credentials: auth ? "include" : "same-origin",
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
     throw new Error("Could not reach the server.");
@@ -34,46 +55,39 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return payload as T;
 }
 
-export async function apiGetWithAuth<T>(path: string): Promise<T> {
-  let res: Response;
+// -----------------------------
+// Public API helpers
+// -----------------------------
 
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: "GET",
-      credentials: "include",
-    });
-  } catch {
-    throw new Error("Could not reach the server.");
-  }
-
-  const payload = await parseJsonSafe(res);
-
-  if (!res.ok) {
-    throw new Error(extractErrorMessage(payload, res.status));
-  }
-
-  return payload as T;
+// GET (no auth)
+export function apiGet<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "GET" });
 }
 
-export async function apiPostWithAuth<T>(path: string, body: unknown): Promise<T> {
-  let res: Response;
+// POST (no auth)
+export function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body });
+}
 
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error("Could not reach the server.");
-  }
+// GET (with auth / cookies)
+export function apiGetWithAuth<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "GET", auth: true });
+}
 
-  const payload = await parseJsonSafe(res);
+// POST (with auth / cookies)
+export function apiPostWithAuth<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body, auth: true });
+}
 
-  if (!res.ok) {
-    throw new Error(extractErrorMessage(payload, res.status));
-  }
+// PUT / PATCH / DELETE (future-ready)
+export function apiPutWithAuth<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "PUT", body, auth: true });
+}
 
-  return payload as T;
+export function apiPatchWithAuth<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "PATCH", body, auth: true });
+}
+
+export function apiDeleteWithAuth<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE", auth: true });
 }
