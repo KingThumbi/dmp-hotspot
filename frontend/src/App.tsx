@@ -1,44 +1,70 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import PublicLayout from "./app/layout/PublicLayout";
 import Home from "./app/routes/Home";
 import Packages from "./app/routes/Packages";
-import ContactPage from "./pages/Contact";
+
+import ScrollToTop from "./components/common/ScrollToTop";
 import CoveragePreview from "./components/sections/CoveragePreview";
+
+import ContactPage from "./pages/Contact";
+import PrivacyPage from "./pages/Privacy";
+import TermsPage from "./pages/Terms";
+import AcceptableUsePage from "./pages/AcceptableUse";
+import RefundPolicyPage from "./pages/RefundPolicy";
+import ServiceLevelAgreementPage from "./pages/ServiceLevelAgreement";
 import SupportPage from "./pages/Support";
 
 import AdminLayout from "./pages/admin/AdminLayout";
+import CustomersPage from "./pages/admin/Customers";
+import CustomerDetailPage from "./pages/admin/CustomerDetail";
 import AdminDashboardPage from "./pages/admin/Dashboard";
 import PublicLeadsPage from "./pages/admin/PublicLeads";
-import TicketsPage from "./pages/admin/Tickets";
-import CustomersPage from "./pages/admin/Customers";
-import SubscriptionsPage from "./pages/admin/Subscriptions";
-import TransactionsPage from "./pages/admin/Transactions";
-import CustomerDetailPage from "./pages/admin/CustomerDetail";
-import TicketDetailPage from "./pages/admin/TicketDetail";
-import TransactionDetailPage from "./pages/admin/TransactionDetail";
 import RenewalRemindersPage from "./pages/admin/RenewalReminders";
-import PrivacyPage from "./pages/Privacy";
-import TermsPage from "./pages/Terms";
+import SubscriptionsPage from "./pages/admin/Subscriptions";
+import TicketDetailPage from "./pages/admin/TicketDetail";
+import TicketsPage from "./pages/admin/Tickets";
+import TransactionDetailPage from "./pages/admin/TransactionDetail";
+import TransactionsPage from "./pages/admin/Transactions";
+
+function ComingSoonPage({ title }: { title: string }) {
+  return <div className="p-6">{title} (coming soon)</div>;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
+
       <Routes>
-        {/* Public */}
+        {/* Public routes */}
         <Route element={<PublicLayout />}>
           <Route path="/" element={<Home />} />
           <Route path="/packages" element={<Packages />} />
           <Route path="/coverage" element={<CoveragePreview />} />
-          <Route path="/shop" element={<div className="p-6">Shop (coming soon)</div>} />
+          <Route path="/shop" element={<ComingSoonPage title="Shop" />} />
           <Route path="/support" element={<SupportPage />} />
-          <Route path="/about" element={<div className="p-6">About (coming soon)</div>} />
+          <Route path="/about" element={<ComingSoonPage title="About" />} />
           <Route path="/contact" element={<ContactPage />} />
+
+          {/* Legal routes */}
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/acceptable-use" element={<AcceptableUsePage />} />
+          <Route path="/refund-policy" element={<RefundPolicyPage />} />
+          <Route
+            path="/service-level-agreement"
+            element={<ServiceLevelAgreementPage />}
+          />
+
+          {/* Legacy short SLA route */}
+          <Route
+            path="/sla"
+            element={<Navigate to="/service-level-agreement" replace />}
+          />
         </Route>
 
-        {/* Admin UI */}
+        {/* Admin routes */}
         <Route path="/admin-ui" element={<AdminLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<AdminDashboardPage />} />

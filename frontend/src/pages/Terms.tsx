@@ -1,313 +1,139 @@
+import LegalPageLayout, {
+  LegalBulletList as BulletList,
+  LegalContactCard,
+  LegalSection as Section,
+} from "../components/legal/LegalPageLayout";
+
 export default function TermsPage() {
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 lg:p-10">
-        <div className="mb-8 border-b border-slate-200 pb-6">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[var(--gold)]">
-            Dmpolin Connect
-          </p>
-          <h1 className="mt-2 text-3xl font-bold text-[var(--navy)] sm:text-4xl">
-            Terms of Service
-          </h1>
-          <p className="mt-3 text-sm text-slate-600">
-            Effective date: 1 April 2026
-          </p>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-700 sm:text-base">
-            These Terms of Service govern access to and use of services
-            provided by Dmpolin Connect, including internet connectivity,
-            hotspot access, installation, support, billing, customer portals,
-            digital communications, and related business services.
-          </p>
-        </div>
+    <LegalPageLayout
+      title="Terms of Service"
+      description="These Terms of Service govern the use of Dmpolin Connect’s website, internet services, support channels, payment systems, and related customer accounts."
+      effectiveDate="April 1, 2026"
+      quickStats={[
+        {
+          label: "Agreement",
+          value:
+            "Using our services means you agree to these terms and to the related legal policies published by Dmpolin Connect.",
+        },
+        {
+          label: "Service Type",
+          value:
+            "Our services may include prepaid residential internet, hotspot access, business connectivity, website features, and customer support channels.",
+        },
+        {
+          label: "Key Expectations",
+          value:
+            "Customers must provide accurate information, pay on time, use the service lawfully, and follow all applicable service policies.",
+        },
+      ]}
+      topLinks={[
+        { to: "/", label: "Back to Home" },
+        { to: "/privacy", label: "View Privacy Policy", variant: "secondary" },
+      ]}
+    >
+      <Section id="overview" title="1. Overview">
+        <p>
+          These Terms of Service govern access to and use of Dmpolin Connect’s
+          services, including our website, internet connectivity services,
+          support channels, customer-facing systems, and payment-related processes.
+        </p>
+        <p>
+          By using our services, you agree to these Terms and to any related
+          policies that apply to your use of the service.
+        </p>
+      </Section>
 
-        <div className="space-y-8 text-sm leading-7 text-slate-700 sm:text-base">
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              1. Acceptance of these terms
-            </h2>
-            <p className="mt-3">
-              By applying for, subscribing to, accessing, paying for, or using
-              our services, you agree to be bound by these Terms of Service and
-              any lawful policies, package rules, operational notices, or
-              service procedures we may issue from time to time.
-            </p>
-          </section>
+      <Section id="services" title="2. Services">
+        <p>Dmpolin Connect may provide services such as:</p>
+        <BulletList
+          items={[
+            "Residential internet subscriptions",
+            "Hotspot internet access services",
+            "Business internet connectivity",
+            "Website inquiry, support, or customer account features",
+            "Payment, renewal, and reconnection workflows",
+          ]}
+        />
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              2. Our services
-            </h2>
-            <p className="mt-3">
-              Dmpolin Connect provides internet and related connectivity
-              services, which may include residential internet, hotspot access,
-              router-linked services, customer support, installation,
-              subscription management, account administration, and business
-              technology services.
-            </p>
-            <p className="mt-3">
-              Availability, speeds, package features, uptime, and quality may
-              vary depending on location, infrastructure, weather, power,
-              upstream providers, equipment condition, customer setup, and other
-              operational factors.
-            </p>
-          </section>
+      <Section id="customer-obligations" title="3. Customer Obligations">
+        <p>Customers are expected to:</p>
+        <BulletList
+          items={[
+            "Provide accurate registration, contact, and payment information",
+            "Pay applicable charges on time",
+            "Use the service lawfully and responsibly",
+            "Protect account credentials and report unauthorized use promptly",
+            "Comply with our Acceptable Use Policy and other related policies",
+          ]}
+        />
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              3. Eligibility and authority
-            </h2>
-            <p className="mt-3">
-              You confirm that the information you provide is accurate and that
-              you have the legal authority to request and use the service at the
-              installation or usage location. If you act for a company,
-              household, institution, or property, you confirm that you are
-              authorized to do so.
-            </p>
-          </section>
+      <Section id="payments" title="4. Payments and Renewals">
+        <p>
+          Some Dmpolin Connect services operate on a prepaid basis. Service
+          renewal, activation, suspension, and reconnection may depend on
+          successful receipt and application of payment.
+        </p>
+        <p>
+          Payment-related issues may require verification before service changes
+          are processed.
+        </p>
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              4. Account registration and customer information
-            </h2>
-            <p className="mt-3">
-              To activate services, we may require information such as your
-              name, phone number, location, package choice, payment details,
-              service identifiers, and technical provisioning information. You
-              are responsible for ensuring that your account and contact details
-              remain accurate and current.
-            </p>
-          </section>
+      <Section id="suspension" title="5. Suspension and Termination">
+        <p>
+          We may suspend, limit, or terminate service where payment is overdue,
+          policies are violated, fraud is suspected, security risks arise, or
+          action is required by law or operational necessity.
+        </p>
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              5. Packages, billing, and payment
-            </h2>
-            <ul className="mt-3 list-disc space-y-2 pl-6">
-              <li>Services are ordinarily offered on a prepaid basis unless expressly agreed otherwise.</li>
-              <li>Applicable package prices, durations, and terms are those communicated by us at the time of purchase or renewal.</li>
-              <li>Payment may be made through methods we approve, including M-Pesa and other supported channels.</li>
-              <li>Receipt, reference, and transaction records generated by our systems or payment channels may be relied upon for billing and support purposes.</li>
-              <li>We may update package pricing, offers, or commercial terms from time to time.</li>
-            </ul>
-          </section>
+      <Section id="service-performance" title="6. Service Performance">
+        <p>
+          Internet service is provided on a best-effort basis. Actual speed,
+          continuity, and performance may vary depending on technical,
+          environmental, device, and upstream provider conditions.
+        </p>
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              6. Activation, expiry, suspension, and reconnection
-            </h2>
-            <p className="mt-3">
-              Service activation and continuation depend on account status,
-              successful provisioning, and payment confirmation where required.
-            </p>
-            <ul className="mt-3 list-disc space-y-2 pl-6">
-              <li>Accounts may expire automatically at the end of a paid period.</li>
-              <li>Services may be suspended automatically or manually for non-payment, fraud concerns, misuse, technical risk, regulatory reasons, or breach of these terms.</li>
-              <li>Where technically possible, service may be restored after successful payment or issue resolution.</li>
-              <li>We may use automated systems to suspend, restrict, reconnect, or otherwise manage service status.</li>
-            </ul>
-          </section>
+      <Section id="liability" title="7. Limitation of Liability">
+        <p>
+          To the extent permitted by law, Dmpolin Connect is not liable for
+          indirect, incidental, consequential, or special losses arising from
+          service interruption, payment delays, third-party failures, or misuse
+          of customer systems or credentials.
+        </p>
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              7. Customer equipment and installation environment
-            </h2>
-            <p className="mt-3">
-              You are responsible for providing a suitable environment for
-              installation, access, power, and safe equipment operation where
-              required. You are also responsible for protecting any equipment on
-              your side of the service from misuse, theft, tampering, power
-              damage, or environmental damage unless otherwise agreed in
-              writing.
-            </p>
-          </section>
+      <Section id="policy-links" title="8. Related Policies">
+        <p>These Terms should be read together with our related policies, including:</p>
+        <BulletList
+          items={[
+            "Privacy Policy",
+            "Acceptable Use Policy",
+            "Refund Policy",
+            "Service Level Agreement",
+          ]}
+        />
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              8. Acceptable use
-            </h2>
-            <p className="mt-3">You must not use the service to:</p>
-            <ul className="mt-3 list-disc space-y-2 pl-6">
-              <li>commit unlawful, fraudulent, abusive, or harmful acts</li>
-              <li>interfere with our systems, infrastructure, or other customers</li>
-              <li>attempt unauthorized access to any device, network, platform, or account</li>
-              <li>distribute malware, spam, or malicious traffic</li>
-              <li>resell, share, or redistribute service in a prohibited manner</li>
-              <li>circumvent billing, authentication, or access-control systems</li>
-              <li>use the network in a way that creates unreasonable operational or security risk</li>
-            </ul>
-            <p className="mt-3">
-              We may investigate and take technical, contractual, or legal steps
-              where we reasonably suspect misuse.
-            </p>
-          </section>
+      <Section id="changes" title="9. Changes to These Terms">
+        <p>
+          Dmpolin Connect may update these Terms from time to time. The latest
+          version will be published on our website, and continued use of the
+          service after updates take effect constitutes acceptance of the revised terms.
+        </p>
+      </Section>
 
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              9. Service communications
-            </h2>
-            <p className="mt-3">
-              You agree that Dmpolin Connect may contact you using phone calls,
-              SMS, email, and WhatsApp for legitimate service-related purposes,
-              including:
-            </p>
-            <ul className="mt-3 list-disc space-y-2 pl-6">
-              <li>renewal reminders</li>
-              <li>billing alerts and payment confirmations</li>
-              <li>support responses and ticket updates</li>
-              <li>service interruption notices</li>
-              <li>maintenance notices and operational updates</li>
-              <li>account verification or security checks</li>
-            </ul>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              10. Fair use, performance, and outages
-            </h2>
-            <p className="mt-3">
-              While we strive to provide reliable service, we do not guarantee
-              uninterrupted or error-free connectivity at all times. Service may
-              be affected by maintenance, power interruption, upstream network
-              failure, vandalism, weather, equipment failure, congestion,
-              government action, force majeure, or circumstances beyond our
-              reasonable control.
-            </p>
-            <p className="mt-3">
-              We reserve the right to perform maintenance, upgrades, emergency
-              works, routing changes, or traffic management reasonably necessary
-              for network stability, security, compliance, and service quality.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              11. Customer support and complaints
-            </h2>
-            <p className="mt-3">
-              We aim to respond to support requests within reasonable operational
-              timelines. Ticket resolution times may vary depending on issue
-              type, location, access conditions, dependency on third parties,
-              and severity of the fault.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              12. Intellectual property and platform use
-            </h2>
-            <p className="mt-3">
-              Our website, systems, software, workflows, branding, service
-              processes, customer dashboards, and related content remain our
-              property or that of our licensors unless stated otherwise. You may
-              not copy, reverse engineer, exploit, or misuse them except as
-              permitted by law or by our written consent.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              13. Data and privacy
-            </h2>
-            <p className="mt-3">
-              Your use of the services is also governed by our Privacy Policy,
-              which explains how we collect, use, and protect personal
-              information. By using the service, you acknowledge that policy as
-              part of our service framework.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              14. Limitation of liability
-            </h2>
-            <p className="mt-3">
-              To the fullest extent permitted by applicable law, Dmpolin Connect
-              will not be liable for indirect, incidental, special,
-              consequential, or business losses arising out of service use,
-              service interruption, payment issues, third-party system failure,
-              customer equipment problems, or unauthorized use of your account
-              where we have acted reasonably and lawfully.
-            </p>
-            <p className="mt-3">
-              Our total liability in relation to a specific service claim shall,
-              to the extent permitted by law, be limited to a reasonable amount
-              linked to the affected service period or the amount paid for the
-              directly affected service, excluding cases where such limitation is
-              prohibited by law.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              15. Indemnity
-            </h2>
-            <p className="mt-3">
-              You agree to indemnify and hold Dmpolin Connect harmless against
-              claims, losses, or liabilities arising from your misuse of the
-              service, breach of these terms, unlawful acts, or unauthorized use
-              of the service through your account, device, or location where you
-              were responsible for the relevant access or conduct.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              16. Termination
-            </h2>
-            <p className="mt-3">
-              We may suspend, restrict, or terminate service where:
-            </p>
-            <ul className="mt-3 list-disc space-y-2 pl-6">
-              <li>payment is overdue or unresolved</li>
-              <li>these terms are breached</li>
-              <li>fraud, abuse, or security concerns arise</li>
-              <li>continued service becomes unlawful or commercially impractical</li>
-              <li>required access, information, or cooperation is not provided</li>
-            </ul>
-            <p className="mt-3">
-              Termination or suspension does not automatically waive any unpaid
-              amounts or accrued rights.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              17. Changes to services or terms
-            </h2>
-            <p className="mt-3">
-              We may update packages, policies, technical standards, these
-              terms, or related service rules from time to time. Continued use
-              of the service after such updates may constitute acceptance of the
-              revised terms, subject to applicable law.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              18. Governing law and jurisdiction
-            </h2>
-            <p className="mt-3">
-              These Terms of Service are governed by the laws of Kenya. Any
-              dispute arising from or relating to the service or these terms
-              shall be handled in accordance with applicable Kenyan law and, if
-              necessary, through the competent courts or lawful dispute
-              resolution channels.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-bold text-slate-900">
-              19. Contact information
-            </h2>
-            <div className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm sm:text-base">
-              <p className="font-semibold text-slate-900">Dmpolin Connect</p>
-              <p>Email: support@dmpolinconnect.co.ke</p>
-              <p>Phone: +254 780 912 362</p>
-              <p>Location: Nairobi, Kenya</p>
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
+      <Section id="contact" title="10. Contact Us">
+        <p>
+          If you have questions about these Terms of Service, please contact
+          Dmpolin Connect.
+        </p>
+        <LegalContactCard />
+      </Section>
+    </LegalPageLayout>
   );
 }

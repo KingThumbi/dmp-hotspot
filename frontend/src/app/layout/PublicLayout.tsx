@@ -1,17 +1,18 @@
 import { Outlet } from "react-router-dom";
+
 import Navbar from "../../components/nav/Navbar";
 import Footer from "../../components/footer/Footer";
 import WhatsAppFloat from "../../components/floating/WhatsAppFloat";
 
 export default function PublicLayout() {
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      {/* Top Navigation */}
+    <div className="min-h-screen flex flex-col bg-white text-slate-900">
+      {/* Navbar */}
       <Navbar />
 
-      {/* Main Page Content */}
+      {/* Main Content */}
       <main className="flex-1 pt-16">
-        <div className="container-page">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
           <Outlet />
         </div>
       </main>
@@ -19,7 +20,7 @@ export default function PublicLayout() {
       {/* Footer */}
       <Footer />
 
-      {/* Floating WhatsApp Button */}
+      {/* Floating WhatsApp */}
       <WhatsAppFloat />
     </div>
   );
