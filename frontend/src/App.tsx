@@ -18,6 +18,8 @@ import CustomerDetailPage from "./pages/admin/CustomerDetail";
 import TicketDetailPage from "./pages/admin/TicketDetail";
 import TransactionDetailPage from "./pages/admin/TransactionDetail";
 import RenewalRemindersPage from "./pages/admin/RenewalReminders";
+import PrivacyPage from "./pages/Privacy";
+import TermsPage from "./pages/Terms";
 
 export default function App() {
   return (
@@ -32,6 +34,8 @@ export default function App() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/about" element={<div className="p-6">About (coming soon)</div>} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
         </Route>
 
         {/* Admin UI */}

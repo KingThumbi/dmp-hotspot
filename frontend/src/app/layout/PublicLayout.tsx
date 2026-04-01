@@ -5,14 +5,21 @@ import WhatsAppFloat from "../../components/floating/WhatsAppFloat";
 
 export default function PublicLayout() {
   return (
-    <div className="page min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-white">
+      {/* Top Navigation */}
       <Navbar />
 
-      <main className="pt-16 flex-1">
-        <Outlet />
+      {/* Main Page Content */}
+      <main className="flex-1 pt-16">
+        <div className="container-page">
+          <Outlet />
+        </div>
       </main>
 
+      {/* Footer */}
       <Footer />
+
+      {/* Floating WhatsApp Button */}
       <WhatsAppFloat />
     </div>
   );
