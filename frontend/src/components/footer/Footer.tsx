@@ -14,6 +14,7 @@ const legalLinks = [
   { label: "Acceptable Use Policy", to: "/acceptable-use" },
   { label: "Refund Policy", to: "/refund-policy" },
   { label: "Service Level Agreement", to: "/service-level-agreement" },
+  { label: "Data Deletion Instructions", to: "/data-deletion" }, // ✅ ADD THIS
 ];
 
 export default function Footer() {

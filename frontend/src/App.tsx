@@ -14,6 +14,7 @@ import AcceptableUsePage from "./pages/AcceptableUse";
 import RefundPolicyPage from "./pages/RefundPolicy";
 import ServiceLevelAgreementPage from "./pages/ServiceLevelAgreement";
 import SupportPage from "./pages/Support";
+import DataDeletion from "./pages/DataDeletion";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import CustomersPage from "./pages/admin/Customers";
@@ -56,6 +57,7 @@ export default function App() {
             path="/service-level-agreement"
             element={<ServiceLevelAgreementPage />}
           />
+          <Route path="/data-deletion" element={<DataDeletion />} />
 
           {/* Legacy short SLA route */}
           <Route
