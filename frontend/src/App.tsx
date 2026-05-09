@@ -22,6 +22,7 @@ import CustomerDetailPage from "./pages/admin/CustomerDetail";
 import AdminDashboardPage from "./pages/admin/Dashboard";
 import PublicLeadsPage from "./pages/admin/PublicLeads";
 import RenewalRemindersPage from "./pages/admin/RenewalReminders";
+import RouterActionsPage from "./pages/admin/RouterActions";
 import SubscriptionsPage from "./pages/admin/Subscriptions";
 import TicketDetailPage from "./pages/admin/TicketDetail";
 import TicketsPage from "./pages/admin/Tickets";
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="transactions/:id" element={<TransactionDetailPage />} />
           <Route path="reminders" element={<RenewalRemindersPage />} />
+          <Route path="router-actions" element={<RouterActionsPage />} />
         </Route>
 
         {/* Catch-all */}

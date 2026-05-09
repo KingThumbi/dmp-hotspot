@@ -42,6 +42,7 @@ export default function AdminLayout() {
           <NavLink to="/admin-ui/subscriptions" label="Subscriptions" />
           <NavLink to="/admin-ui/transactions" label="Transactions" />
           <NavLink to="/admin-ui/reminders" label="Renewal Reminders" />
+          <NavLink to="/admin-ui/router-actions" label="Router Actions" />
         </nav>
 
         {/* Page Content */}
