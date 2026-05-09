@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Any
 
@@ -28,6 +29,7 @@ from app.services.reminders import (
 from app.services.subscription_lifecycle import (
     set_customer_service_state as lifecycle_set_customer_service_state,
 )
+from app.services.router_action_queue import get_enqueue_metrics
 
 api_admin_bp = Blueprint("api_admin", __name__)
 
@@ -446,6 +448,7 @@ def _serialize_renewal_reminder(row: RenewalReminder) -> dict[str, Any]:
 
 
 def _serialize_router_action(row: RouterAction) -> dict[str, Any]:
+    age_minutes = _age_minutes(getattr(row, "created_at", None))
     return {
         "id": row.id,
         "action_key": row.action_key,
@@ -474,6 +477,204 @@ def _serialize_router_action(row: RouterAction) -> dict[str, Any]:
         "result_json": row.result_json,
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
+        "age_minutes": age_minutes,
+        "is_stale": bool((row.status or "").lower() == "queued" and age_minutes is not None and age_minutes >= 30),
+    }
+
+
+def _age_minutes(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        if getattr(value, "tzinfo", None) is not None:
+            now = datetime.now(timezone.utc)
+            age = now - value.astimezone(timezone.utc)
+        else:
+            age = datetime.utcnow() - value
+        return max(0, int(age.total_seconds() // 60))
+    except Exception:
+        return None
+
+
+def _valid_payload(payload_json: str | None) -> bool:
+    if not payload_json:
+        return True
+    try:
+        parsed = json.loads(payload_json)
+        return isinstance(parsed, dict)
+    except Exception:
+        return False
+
+
+def _warning(level: str, code: str, message: str, count: int | None = None) -> dict[str, Any]:
+    return {"level": level, "code": code, "message": message, "count": count}
+
+
+def _router_action_health_summary() -> dict[str, Any]:
+    stale_after_minutes = 30
+    now = datetime.utcnow()
+    stale_cutoff = now - timedelta(minutes=stale_after_minutes)
+
+    total = _safe_count(RouterAction.query)
+    queued_total = _safe_count(RouterAction.query.filter(RouterAction.status == "queued"))
+    retrying_total = _safe_count(RouterAction.query.filter(RouterAction.status == "retrying"))
+    failed_total = _safe_count(RouterAction.query.filter(RouterAction.status == "failed"))
+    queued_reconnects = _safe_count(
+        RouterAction.query.filter(
+            RouterAction.status == "queued",
+            RouterAction.action_type == "subscription.reconnect",
+        )
+    )
+    queued_disconnects = _safe_count(
+        RouterAction.query.filter(
+            RouterAction.status == "queued",
+            RouterAction.action_type == "subscription.disconnect",
+        )
+    )
+    stale_queued = _safe_count(
+        RouterAction.query.filter(
+            RouterAction.status == "queued",
+            RouterAction.created_at <= stale_cutoff,
+        )
+    )
+    missing_subscription_links = _safe_count(
+        RouterAction.query.filter(RouterAction.subscription_id.is_(None))
+    )
+    failed_disconnects = _safe_count(
+        RouterAction.query.filter(
+            RouterAction.action_type == "subscription.disconnect",
+            RouterAction.status.in_(["failed", "retrying"]),
+        )
+    )
+
+    oldest_queued = (
+        RouterAction.query.filter(RouterAction.status == "queued")
+        .order_by(RouterAction.created_at.asc())
+        .first()
+    )
+    newest_queued = (
+        RouterAction.query.filter(RouterAction.status == "queued")
+        .order_by(RouterAction.created_at.desc())
+        .first()
+    )
+
+    queued_rows = (
+        RouterAction.query.filter(RouterAction.status == "queued")
+        .order_by(RouterAction.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    queued_ages = [
+        age
+        for age in (_age_minutes(getattr(row, "created_at", None)) for row in queued_rows)
+        if age is not None
+    ]
+    average_queued_age_minutes = (
+        int(sum(queued_ages) / len(queued_ages)) if queued_ages else 0
+    )
+
+    payload_sample = (
+        RouterAction.query.order_by(RouterAction.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    malformed_payloads_sample = sum(
+        1 for row in payload_sample if not _valid_payload(row.payload_json)
+    )
+
+    repeated_disconnect_rows = (
+        db.session.query(
+            RouterAction.subscription_id,
+            RouterAction.identity,
+            func.count(RouterAction.id).label("count"),
+        )
+        .filter(RouterAction.action_type == "subscription.disconnect")
+        .group_by(RouterAction.subscription_id, RouterAction.identity)
+        .having(func.count(RouterAction.id) > 1)
+        .order_by(func.count(RouterAction.id).desc())
+        .limit(10)
+        .all()
+    )
+    repeated_disconnects = [
+        {
+            "subscription_id": subscription_id,
+            "identity": identity,
+            "count": int(count),
+        }
+        for subscription_id, identity, count in repeated_disconnect_rows
+    ]
+
+    warnings = []
+    if queued_reconnects >= 25:
+        warnings.append(
+            _warning(
+                "warning",
+                "many_queued_reconnects",
+                "Many reconnect actions are queued in observe-only mode.",
+                queued_reconnects,
+            )
+        )
+    if repeated_disconnects:
+        warnings.append(
+            _warning(
+                "warning",
+                "repeated_disconnects",
+                "Some subscriptions or identities have repeated disconnect actions.",
+                len(repeated_disconnects),
+            )
+        )
+    if malformed_payloads_sample:
+        warnings.append(
+            _warning(
+                "warning",
+                "malformed_payloads",
+                "Some recent router actions have malformed payload JSON.",
+                malformed_payloads_sample,
+            )
+        )
+    if missing_subscription_links:
+        warnings.append(
+            _warning(
+                "warning",
+                "missing_subscription_links",
+                "Some router actions are not linked to a subscription.",
+                missing_subscription_links,
+            )
+        )
+    if stale_queued:
+        warnings.append(
+            _warning(
+                "warning",
+                "stale_queued_actions",
+                f"Queued actions older than {stale_after_minutes} minutes are present.",
+                stale_queued,
+            )
+        )
+
+    return {
+        "stale_after_minutes": stale_after_minutes,
+        "queued_total": queued_total,
+        "retrying_total": retrying_total,
+        "failed_total": failed_total,
+        "queued_reconnects": queued_reconnects,
+        "queued_disconnects": queued_disconnects,
+        "stale_queued": stale_queued,
+        "missing_subscription_links": missing_subscription_links,
+        "failed_disconnects": failed_disconnects,
+        "malformed_payloads_sample": malformed_payloads_sample,
+        "payload_sample_size": len(payload_sample),
+        "oldest_queued_created_at": _iso(getattr(oldest_queued, "created_at", None)),
+        "oldest_queued_age_minutes": _age_minutes(getattr(oldest_queued, "created_at", None)),
+        "newest_queued_created_at": _iso(getattr(newest_queued, "created_at", None)),
+        "newest_queued_age_minutes": _age_minutes(getattr(newest_queued, "created_at", None)),
+        "average_queued_age_minutes": average_queued_age_minutes,
+        "repeated_disconnects": repeated_disconnects,
+        "duplicate_detection": {
+            "stored_action_keys": total,
+            "duplicate_action_key_hits_since_start": get_enqueue_metrics().get("duplicate_action_key_hits", 0),
+        },
+        "enqueue_metrics": get_enqueue_metrics(),
+        "warnings": warnings,
     }
 
 
@@ -1092,6 +1293,7 @@ def admin_router_actions_summary():
                 "total": total,
                 "by_status": {status or "unknown": count for status, count in by_status_rows},
                 "by_action_type": {action or "unknown": count for action, count in by_action_rows},
+                "health": _router_action_health_summary(),
             },
         }
     )

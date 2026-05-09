@@ -32,6 +32,8 @@ type RouterAction = {
   result_json: string | null;
   created_at: string | null;
   updated_at: string | null;
+  age_minutes: number | null;
+  is_stale: boolean;
 };
 
 type RouterActionsResponse = {
@@ -53,6 +55,46 @@ type RouterActionsSummaryResponse = {
     total: number;
     by_status: Record<string, number>;
     by_action_type: Record<string, number>;
+    health?: {
+      stale_after_minutes: number;
+      queued_total: number;
+      retrying_total: number;
+      failed_total: number;
+      queued_reconnects: number;
+      queued_disconnects: number;
+      stale_queued: number;
+      missing_subscription_links: number;
+      failed_disconnects: number;
+      malformed_payloads_sample: number;
+      payload_sample_size: number;
+      oldest_queued_created_at: string | null;
+      oldest_queued_age_minutes: number | null;
+      newest_queued_created_at: string | null;
+      newest_queued_age_minutes: number | null;
+      average_queued_age_minutes: number;
+      repeated_disconnects: Array<{
+        subscription_id: number | null;
+        identity: string | null;
+        count: number;
+      }>;
+      duplicate_detection: {
+        stored_action_keys: number;
+        duplicate_action_key_hits_since_start: number;
+      };
+      enqueue_metrics: {
+        attempts: number;
+        created: number;
+        duplicate_action_key_hits: number;
+        failures: number;
+        failures_by_action_type: Record<string, number>;
+      };
+      warnings: Array<{
+        level: string;
+        code: string;
+        message: string;
+        count: number | null;
+      }>;
+    };
   };
 };
 
@@ -87,6 +129,16 @@ function parsePayload(item: RouterAction): Record<string, unknown> {
   }
 }
 
+function hasMalformedPayload(item: RouterAction) {
+  if (!item.payload_json) return false;
+  try {
+    const parsed = JSON.parse(item.payload_json);
+    return !(parsed && typeof parsed === "object");
+  } catch {
+    return true;
+  }
+}
+
 function isPastDate(value: unknown) {
   if (!value || typeof value !== "string") return false;
   const date = new Date(value);
@@ -114,6 +166,9 @@ function actionFlags(item: RouterAction) {
     failedDisconnect:
       actionType.includes("disconnect") &&
       (status === "failed" || status === "retrying" || Boolean(item.error_message)),
+    staleQueued: Boolean(item.is_stale),
+    malformedPayload: hasMalformedPayload(item),
+    missingSubscriptionLink: item.subscription_id === null || item.subscription_id === undefined,
   };
 }
 
@@ -211,6 +266,10 @@ function DetailModal({
               />
               <DetailRow label="Next Run" value={formatDateTime(item.next_run_at)} />
               <DetailRow label="Created" value={formatDateTime(item.created_at)} />
+              <DetailRow
+                label="Queue Age"
+                value={item.age_minutes === null ? "—" : `${item.age_minutes} min`}
+              />
               <DetailRow label="Updated" value={formatDateTime(item.updated_at)} />
               <DetailRow label="Error" value={item.error_message} />
             </div>
@@ -295,6 +354,7 @@ export default function RouterActionsPage() {
   }, []);
 
   const counts = summary?.by_status || {};
+  const health = summary?.health;
   const flags = useMemo(() => {
     return items.reduce(
       (acc, item) => {
@@ -302,9 +362,19 @@ export default function RouterActionsPage() {
         if (itemFlags.expiredReconnectQueued) acc.expiredReconnectQueued += 1;
         if (itemFlags.reconnectAfterPayment) acc.reconnectAfterPayment += 1;
         if (itemFlags.failedDisconnect) acc.failedDisconnect += 1;
+        if (itemFlags.staleQueued) acc.staleQueued += 1;
+        if (itemFlags.malformedPayload) acc.malformedPayload += 1;
+        if (itemFlags.missingSubscriptionLink) acc.missingSubscriptionLink += 1;
         return acc;
       },
-      { expiredReconnectQueued: 0, reconnectAfterPayment: 0, failedDisconnect: 0 }
+      {
+        expiredReconnectQueued: 0,
+        reconnectAfterPayment: 0,
+        failedDisconnect: 0,
+        staleQueued: 0,
+        malformedPayload: 0,
+        missingSubscriptionLink: 0,
+      }
     );
   }, [items]);
 
@@ -355,21 +425,116 @@ export default function RouterActionsPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Total" value={summary?.total || 0} />
-        <StatCard label="Queued" value={counts.queued || 0} tone="blue" />
-        <StatCard label="Retrying" value={counts.retrying || 0} tone="amber" />
-        <StatCard label="Failed" value={counts.failed || 0} tone="red" />
+        <StatCard label="Queued" value={health?.queued_total ?? counts.queued ?? 0} tone="blue" />
+        <StatCard label="Retrying" value={health?.retrying_total ?? counts.retrying ?? 0} tone="amber" />
+        <StatCard label="Failed" value={health?.failed_total ?? counts.failed ?? 0} tone="red" />
         <StatCard
           label="Payment Reconnects"
           value={flags.reconnectAfterPayment}
           tone="emerald"
         />
         <StatCard
-          label="Risk Flags"
-          value={flags.expiredReconnectQueued + flags.failedDisconnect}
-          helper="Expired reconnects + disconnect issues"
+          label="Oldest Queued"
+          value={
+            health?.oldest_queued_age_minutes === null ||
+            health?.oldest_queued_age_minutes === undefined
+              ? "—"
+              : `${health.oldest_queued_age_minutes}m`
+          }
+          helper={`Stale after ${health?.stale_after_minutes ?? 30}m`}
           tone="amber"
         />
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Queued Reconnects"
+          value={health?.queued_reconnects ?? 0}
+          helper="Watch for payment/reconnect buildup"
+          tone={(health?.queued_reconnects ?? 0) >= 25 ? "amber" : "slate"}
+        />
+        <StatCard
+          label="Stale Queued"
+          value={health?.stale_queued ?? flags.staleQueued}
+          helper="Queued longer than threshold"
+          tone={(health?.stale_queued ?? 0) > 0 ? "amber" : "slate"}
+        />
+        <StatCard
+          label="Malformed Payloads"
+          value={health?.malformed_payloads_sample ?? flags.malformedPayload}
+          helper={`Sample size ${health?.payload_sample_size ?? items.length}`}
+          tone={(health?.malformed_payloads_sample ?? 0) > 0 ? "red" : "slate"}
+        />
+        <StatCard
+          label="Enqueue Failures"
+          value={health?.enqueue_metrics.failures ?? 0}
+          helper="Since app process start"
+          tone={(health?.enqueue_metrics.failures ?? 0) > 0 ? "red" : "slate"}
+        />
+      </div>
+
+      {health?.warnings?.length ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm">
+          <div className="text-sm font-bold text-amber-950">
+            Queue Health Warnings
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {health.warnings.map((warning) => (
+              <div
+                key={warning.code}
+                className="rounded-lg border border-amber-200 bg-white p-3 text-sm text-slate-700"
+              >
+                <div className="font-semibold text-slate-950">
+                  {warning.message}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {warning.code}
+                  {warning.count !== null && warning.count !== undefined
+                    ? ` · ${warning.count}`
+                    : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {health ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm font-bold text-slate-900">
+            Operational Signals
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Duplicate Keys"
+              value={health.duplicate_detection.duplicate_action_key_hits_since_start}
+              helper="Deduped since app start"
+              tone={
+                health.duplicate_detection.duplicate_action_key_hits_since_start > 0
+                  ? "amber"
+                  : "slate"
+              }
+            />
+            <StatCard
+              label="Missing Links"
+              value={health.missing_subscription_links}
+              helper="Actions without subscription_id"
+              tone={health.missing_subscription_links > 0 ? "amber" : "slate"}
+            />
+            <StatCard
+              label="Repeated Disconnects"
+              value={health.repeated_disconnects.length}
+              helper="Repeated subscription/identity pairs"
+              tone={health.repeated_disconnects.length > 0 ? "amber" : "slate"}
+            />
+            <StatCard
+              label="Average Queue Age"
+              value={`${health.average_queued_age_minutes}m`}
+              helper="Recent queued sample"
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -448,6 +613,7 @@ export default function RouterActionsPage() {
                 <th className="px-4 py-3 font-semibold">Source</th>
                 <th className="px-4 py-3 font-semibold">Signals</th>
                 <th className="px-4 py-3 font-semibold">Created</th>
+                <th className="px-4 py-3 font-semibold">Age</th>
                 <th className="px-4 py-3 font-semibold">Detail</th>
               </tr>
             </thead>
@@ -455,13 +621,13 @@ export default function RouterActionsPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     Loading router actions...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     No router actions found.
                   </td>
                 </tr>
@@ -534,9 +700,27 @@ export default function RouterActionsPage() {
                               Disconnect issue
                             </span>
                           ) : null}
+                          {itemFlags.staleQueued ? (
+                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                              Stale queued
+                            </span>
+                          ) : null}
+                          {itemFlags.malformedPayload ? (
+                            <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 ring-1 ring-red-200">
+                              Malformed payload
+                            </span>
+                          ) : null}
+                          {itemFlags.missingSubscriptionLink ? (
+                            <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                              Missing subscription
+                            </span>
+                          ) : null}
                           {!itemFlags.expiredReconnectQueued &&
                           !itemFlags.reconnectAfterPayment &&
-                          !itemFlags.failedDisconnect ? (
+                          !itemFlags.failedDisconnect &&
+                          !itemFlags.staleQueued &&
+                          !itemFlags.malformedPayload &&
+                          !itemFlags.missingSubscriptionLink ? (
                             <span className="text-slate-400">—</span>
                           ) : null}
                         </div>
@@ -544,6 +728,10 @@ export default function RouterActionsPage() {
 
                       <td className="px-4 py-4 text-slate-700">
                         {formatDateTime(item.created_at)}
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-700">
+                        {item.age_minutes === null ? "—" : `${item.age_minutes}m`}
                       </td>
 
                       <td className="px-4 py-4">

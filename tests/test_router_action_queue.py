@@ -120,7 +120,11 @@ def test_idempotent_enqueue_creates_one_action(queue_app):
 def test_duplicate_action_key_returns_existing_action(queue_app):
     from app.extensions import db
     from app.models import RouterAction
-    from app.services.router_action_queue import build_action_key, enqueue_router_action
+    from app.services.router_action_queue import (
+        build_action_key,
+        enqueue_router_action,
+        get_enqueue_metrics,
+    )
 
     with queue_app.app_context():
         _customer, _package, sub = _create_subscription(service_type="hotspot")
@@ -155,6 +159,7 @@ def test_duplicate_action_key_returns_existing_action(queue_app):
         assert row is not None
         assert row.id == existing.id
         assert RouterAction.query.count() == 1
+        assert get_enqueue_metrics()["duplicate_action_key_hits"] >= 1
 
 
 def test_safe_enqueue_never_breaks_caller_flow(monkeypatch, queue_app):
@@ -176,6 +181,13 @@ def test_safe_enqueue_never_breaks_caller_flow(monkeypatch, queue_app):
 
         assert row is None
         assert marker == "caller still completes"
+        assert router_action_queue.get_enqueue_metrics()["failures"] >= 1
+        assert (
+            router_action_queue.get_enqueue_metrics()["failures_by_action_type"][
+                "subscription.reconnect"
+            ]
+            >= 1
+        )
 
 
 def test_payload_result_and_error_fields_serialize_correctly(queue_app):
@@ -323,3 +335,84 @@ def test_admin_enable_path_enqueues_reconnect_without_live_router(monkeypatch, q
                 "comment": "Enabled by admin",
             }
         ]
+
+
+def test_router_action_health_summary_flags_observe_only_risks(queue_app):
+    from app.api_admin import _router_action_health_summary
+    from app.extensions import db
+    from app.models import RouterAction
+
+    with queue_app.app_context():
+        _customer, _package, sub = _create_subscription()
+        old = datetime.utcnow() - timedelta(hours=2)
+
+        rows = [
+            RouterAction(
+                action_key="health:queued-reconnect",
+                status="queued",
+                action_type="subscription.reconnect",
+                service_type="pppoe",
+                subscription_id=sub.id,
+                customer_id=sub.customer_id,
+                package_id=sub.package_id,
+                identity="D001",
+                payload_json=json.dumps({"observe_only": True}),
+                created_at=old,
+                updated_at=old,
+            ),
+            RouterAction(
+                action_key="health:disconnect-1",
+                status="queued",
+                action_type="subscription.disconnect",
+                service_type="pppoe",
+                subscription_id=sub.id,
+                customer_id=sub.customer_id,
+                package_id=sub.package_id,
+                identity="D001",
+                payload_json=json.dumps({"observe_only": True}),
+                created_at=old,
+                updated_at=old,
+            ),
+            RouterAction(
+                action_key="health:disconnect-2",
+                status="retrying",
+                action_type="subscription.disconnect",
+                service_type="pppoe",
+                subscription_id=sub.id,
+                customer_id=sub.customer_id,
+                package_id=sub.package_id,
+                identity="D001",
+                payload_json=json.dumps({"observe_only": True}),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            ),
+            RouterAction(
+                action_key="health:malformed",
+                status="queued",
+                action_type="subscription.reconnect",
+                service_type="hotspot",
+                subscription_id=None,
+                identity="254700000001",
+                payload_json="{not-json",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            ),
+        ]
+        db.session.add_all(rows)
+        db.session.commit()
+
+        health = _router_action_health_summary()
+
+        assert health["queued_reconnects"] >= 2
+        assert health["stale_queued"] >= 2
+        assert health["malformed_payloads_sample"] >= 1
+        assert health["missing_subscription_links"] >= 1
+        assert health["failed_disconnects"] >= 1
+        assert health["oldest_queued_age_minutes"] >= 100
+        assert health["repeated_disconnects"][0]["count"] >= 2
+        assert {warning["code"] for warning in health["warnings"]} >= {
+            "repeated_disconnects",
+            "malformed_payloads",
+            "missing_subscription_links",
+            "stale_queued_actions",
+        }

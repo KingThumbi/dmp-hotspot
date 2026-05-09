@@ -13,6 +13,35 @@ from app.models import RouterAction, Subscription
 
 log = logging.getLogger(__name__)
 
+_enqueue_metrics: dict[str, Any] = {
+    "attempts": 0,
+    "created": 0,
+    "duplicate_action_key_hits": 0,
+    "failures": 0,
+    "failures_by_action_type": {},
+}
+
+
+def _increment_metric(name: str, *, action_type: str | None = None) -> None:
+    try:
+        _enqueue_metrics[name] = int(_enqueue_metrics.get(name, 0)) + 1
+        if name == "failures" and action_type:
+            by_action = _enqueue_metrics.setdefault("failures_by_action_type", {})
+            by_action[action_type] = int(by_action.get(action_type, 0)) + 1
+    except Exception:
+        pass
+
+
+def get_enqueue_metrics() -> dict[str, Any]:
+    by_action = dict(_enqueue_metrics.get("failures_by_action_type", {}))
+    return {
+        "attempts": int(_enqueue_metrics.get("attempts", 0)),
+        "created": int(_enqueue_metrics.get("created", 0)),
+        "duplicate_action_key_hits": int(_enqueue_metrics.get("duplicate_action_key_hits", 0)),
+        "failures": int(_enqueue_metrics.get("failures", 0)),
+        "failures_by_action_type": by_action,
+    }
+
 
 def _iso(value: Any) -> str | None:
     try:
@@ -119,6 +148,8 @@ def enqueue_router_action(
     Returns (row, created). Queue failures are intentionally not swallowed here so
     tests can assert behavior; production callers should use safe_enqueue_router_action.
     """
+    _increment_metric("attempts")
+
     if subscription is not None:
         subscription_id = subscription_id or getattr(subscription, "id", None)
         customer_id = customer_id or getattr(subscription, "customer_id", None)
@@ -138,12 +169,17 @@ def enqueue_router_action(
 
     existing = RouterAction.query.filter_by(action_key=action_key).first()
     if existing:
+        _increment_metric("duplicate_action_key_hits")
         log.info(
-            "Router action already queued action_key=%s action_type=%s status=%s sub_id=%s",
+            "router_action_enqueue_duplicate action_key=%s action_type=%s status=%s sub_id=%s customer_id=%s identity=%s created_by=%s correlation_id=%s",
             action_key,
             action_type,
             existing.status,
             subscription_id,
+            customer_id,
+            identity,
+            created_by,
+            correlation_id,
         )
         return existing, False
 
@@ -180,11 +216,15 @@ def enqueue_router_action(
 
     if not commit:
         log.info(
-            "Router action staged action_key=%s action_type=%s sub_id=%s identity=%s",
+            "router_action_enqueue_staged action_key=%s action_type=%s sub_id=%s customer_id=%s service_type=%s identity=%s created_by=%s correlation_id=%s observe_only=true",
             action_key,
             action_type,
             subscription_id,
+            customer_id,
+            service_type,
             identity,
+            created_by,
+            correlation_id,
         )
         return row, True
 
@@ -194,16 +234,23 @@ def enqueue_router_action(
         db.session.rollback()
         existing = RouterAction.query.filter_by(action_key=action_key).first()
         if existing:
+            _increment_metric("duplicate_action_key_hits")
             return existing, False
         raise
 
+    _increment_metric("created")
     log.info(
-        "Router action queued action_key=%s action_type=%s sub_id=%s service_type=%s identity=%s",
+        "router_action_enqueue_created action_key=%s action_type=%s sub_id=%s customer_id=%s package_id=%s service_type=%s identity=%s created_by=%s correlation_id=%s priority=%s observe_only=true",
         action_key,
         action_type,
         subscription_id,
+        customer_id,
+        package_id,
         service_type,
         identity,
+        created_by,
+        correlation_id,
+        priority,
     )
     return row, True
 
@@ -221,14 +268,18 @@ def safe_enqueue_router_action(**kwargs: Any) -> RouterAction | None:
         row, _created = enqueue_router_action(**kwargs)
         return row
     except Exception:
+        _increment_metric("failures", action_type=kwargs.get("action_type"))
         try:
             db.session.rollback()
         except Exception:
             pass
         log.exception(
-            "Router action enqueue failed action_type=%s subscription_id=%s correlation_id=%s",
+            "router_action_enqueue_failed action_type=%s subscription_id=%s customer_id=%s identity=%s created_by=%s correlation_id=%s observe_only=true",
             kwargs.get("action_type"),
             kwargs.get("subscription_id") or getattr(kwargs.get("subscription"), "id", None),
+            kwargs.get("customer_id") or getattr(kwargs.get("subscription"), "customer_id", None),
+            kwargs.get("identity"),
+            kwargs.get("created_by"),
             kwargs.get("correlation_id"),
         )
         return None
