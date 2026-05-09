@@ -13,6 +13,9 @@ from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db
 from app.models import MpesaPayment
+from app.services.subscription_lifecycle import (
+    activate_or_extend_current_subscription as lifecycle_activate_or_extend_current_subscription,
+)
 
 mpesa_bp = Blueprint("mpesa", __name__, url_prefix="/api/mpesa")
 
@@ -201,15 +204,7 @@ def _activate_or_extend_subscription(sub, *, now: dt.datetime) -> None:
     - If current expires_at is in the future, extend from expires_at
     - Else extend from now
     """
-    minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
-    if minutes <= 0:
-        raise RuntimeError("Package duration_minutes is missing/invalid")
-
-    base = sub.expires_at if (sub.expires_at and sub.expires_at > now) else now
-    sub.status = "active"
-    if not getattr(sub, "starts_at", None):
-        sub.starts_at = now
-    sub.expires_at = base + dt.timedelta(minutes=minutes)
+    lifecycle_activate_or_extend_current_subscription(sub, now=now)
 
 
 # ======================================================

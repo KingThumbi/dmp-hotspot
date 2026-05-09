@@ -5,6 +5,7 @@ from datetime import datetime
 from app.extensions import db
 from app.models import Subscription
 from app.services.router_actions import disconnect_subscription, reconnect_subscription
+from app.services.subscription_lifecycle import mark_subscription_expired
 
 
 def utc_now_naive():
@@ -33,7 +34,7 @@ def sweep_expired_accounts() -> dict:
         username = (sub.pppoe_username or "").strip() or None
 
         try:
-            sub.status = "expired"
+            mark_subscription_expired(sub, reason="expired", now=now)
             db.session.add(sub)
             db.session.commit()
         except Exception as e:

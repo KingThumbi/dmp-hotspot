@@ -30,6 +30,11 @@ from sqlalchemy import desc, func
 
 from .extensions import db
 from .models import Customer, Package, Subscription, Transaction, PublicLead
+from .services.subscription_lifecycle import (
+    apply_pppoe_prorated_upgrade,
+    activate_or_extend_hotspot_subscription as lifecycle_activate_or_extend_hotspot_subscription,
+    activate_or_extend_pppoe_subscription as lifecycle_activate_or_extend_pppoe_subscription,
+)
 
 # =========================================================
 # Blueprint + Logging
@@ -326,30 +331,7 @@ def extend_or_activate_hotspot_subscription(sub: Subscription, package: Package,
       - If already ACTIVE: extend from max(expires_at, now)
       - Else: activate from now
     """
-    now = now_utc_naive()
-    minutes = int(getattr(package, "duration_minutes", 0) or 0)
-    if minutes <= 0:
-        minutes = 60  # safety fallback
-
-    # Ensure username exists (for old rows)
-    if (sub.service_type or "").lower() == "hotspot" and not sub.hotspot_username:
-        try:
-            if sub.customer and sub.customer.phone:
-                sub.hotspot_username = sub.customer.phone
-        except Exception:
-            pass
-
-    if sub.status == "active" and sub.expires_at:
-        base = sub.expires_at if sub.expires_at > now else now
-        sub.expires_at = base + timedelta(minutes=minutes)
-        if not sub.starts_at:
-            sub.starts_at = now
-    else:
-        sub.status = "active"
-        sub.starts_at = now
-        sub.expires_at = now + timedelta(minutes=minutes)
-
-    sub.last_tx_id = tx.id
+    lifecycle_activate_or_extend_hotspot_subscription(sub, package, tx)
 
 
 def pppoe_extend_or_activate(sub: Subscription, pkg: Package, tx: Transaction) -> None:
@@ -360,22 +342,7 @@ def pppoe_extend_or_activate(sub: Subscription, pkg: Package, tx: Transaction) -
     Duration:
       - Uses package.duration_minutes when present, else defaults to 30 days.
     """
-    now = now_utc_naive()
-    minutes = int(getattr(pkg, "duration_minutes", 0) or 0)
-    if minutes <= 0:
-        minutes = int(PPPOE_BILLING_PERIOD.total_seconds() // 60)
-
-    if sub.expires_at and sub.expires_at > now:
-        sub.expires_at = sub.expires_at + timedelta(minutes=minutes)
-        sub.status = "active"
-        if not sub.starts_at:
-            sub.starts_at = now
-    else:
-        sub.status = "active"
-        sub.starts_at = now
-        sub.expires_at = now + timedelta(minutes=minutes)
-
-    sub.last_tx_id = tx.id
+    lifecycle_activate_or_extend_pppoe_subscription(sub, pkg, tx)
 
 
 def _extract_speed_mbps(pkg: Package) -> Optional[int]:
@@ -1152,11 +1119,7 @@ def mpesa_callback():
 
         # Upgrade mid-period: change plan immediately; expiry unchanged.
         if mode == "upgrade_prorated":
-            sub.package_id = pkg.id
-            sub.status = "active"
-            sub.last_tx_id = tx.id
-            if not sub.starts_at:
-                sub.starts_at = now_utc_naive()
+            apply_pppoe_prorated_upgrade(sub, pkg, tx)
             db.session.commit()
             return jsonify({"ok": True}), 200
 

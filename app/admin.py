@@ -30,6 +30,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from app.services.router_actions import reconnect_subscription
+from app.services.subscription_lifecycle import apply_manual_payment_activation
 from werkzeug.security import generate_password_hash
 from .authz import roles_required
 from .extensions import db, limiter, login_manager
@@ -1019,27 +1020,11 @@ def customer_manual_payment(customer_id: int) -> Response:
             )
             return detail_redirect
 
-    # -----------------------------
-    # Compute subscription expiry
-    # -----------------------------
-    duration_minutes = int(getattr(sub.package, "duration_minutes", 0) or 0)
-    if duration_minutes <= 0:
-        duration_minutes = 43200  # fallback: 30 days
-
-    base = (
-        sub.expires_at
-        if (sub.expires_at and sub.expires_at > paid_at_utc_naive)
-        else paid_at_utc_naive
+    apply_manual_payment_activation(
+        sub,
+        paid_at=paid_at_utc_naive,
+        expires_override=expires_override_utc_naive,
     )
-    computed_expires = base + timedelta(minutes=duration_minutes)
-
-    sub.status = "active"
-    if not getattr(sub, "starts_at", None):
-        sub.starts_at = paid_at_utc_naive
-    sub.expires_at = expires_override_utc_naive or computed_expires
-
-    if hasattr(sub, "updated_at"):
-        sub.updated_at = utcnow_naive()
 
     # -----------------------------
     # Build transaction

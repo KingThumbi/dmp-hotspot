@@ -16,6 +16,7 @@ from app.services.reminders import (
     send_due_renewal_reminders,
 )
 from app.services.router_actions import disconnect_subscription
+from app.services.subscription_lifecycle import mark_subscription_expired
 
 pppoe_log = logging.getLogger("pppoe.scheduler")
 hotspot_log = logging.getLogger("hotspot.scheduler")
@@ -141,7 +142,7 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
                 continue
 
             try:
-                sub.status = "expired"
+                mark_subscription_expired(sub, reason="expired", now=now)
                 db.session.add(sub)
                 db.session.commit()
             except Exception:
@@ -232,7 +233,7 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
                 continue
 
             try:
-                sub.status = "expired"
+                mark_subscription_expired(sub, reason="expired", now=now)
                 db.session.add(sub)
                 db.session.commit()
             except Exception:
