@@ -10,6 +10,7 @@ import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 from sqlalchemy import and_
 
@@ -632,12 +633,42 @@ def admin_root():
 # =========================================================
 # Auth
 # =========================================================
+def safe_admin_next_url(raw_next: str | None) -> str | None:
+    """
+    Allow login returns only to local admin surfaces.
+
+    This keeps normal Flask admin redirects working while preventing external
+    redirects such as //example.com or https://example.com.
+    """
+    value = (raw_next or "").strip()
+    if not value or "\\" in value:
+        return None
+
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc:
+        return None
+
+    if not value.startswith("/") or value.startswith("//"):
+        return None
+
+    if (
+        value == "/admin"
+        or value.startswith("/admin/")
+        or value == "/admin-ui"
+        or value.startswith("/admin-ui/")
+    ):
+        return value
+
+    return None
+
+
 @admin.get("/login")
 @limiter.limit("30 per minute")
 def login_get():
+    next_url = safe_admin_next_url(request.args.get("next"))
     if current_user.is_authenticated:
-        return redirect(url_for("admin.dashboard"))
-    return render_template("admin/login.html")
+        return redirect(next_url or url_for("admin.dashboard"))
+    return render_template("admin/login.html", next_url=next_url or "")
 
 
 @admin.post("/login")
@@ -645,24 +676,23 @@ def login_get():
 def login_post():
     email = (request.form.get("email") or "").strip().lower()
     password = request.form.get("password") or ""
-    next_url = (request.form.get("next") or "").strip()
+    next_url = safe_admin_next_url(request.form.get("next"))
 
     if not email or not password:
         flash("Email and password are required.", "error")
-        return redirect(url_for("admin.login_get"))
+        return redirect(url_for("admin.login_get", next=next_url) if next_url else url_for("admin.login_get"))
 
     user = AdminUser.query.filter_by(email=email, is_active=True).first()
     if not user or not user.check_password(password):
         audit("login_failed", {"email": email})
         flash("Invalid credentials.", "error")
-        return redirect(url_for("admin.login_get"))
+        return redirect(url_for("admin.login_get", next=next_url) if next_url else url_for("admin.login_get"))
 
     login_user(user)
     audit("login_success", {"email": email, "role": getattr(user, "role", None), "super": getattr(user, "is_superadmin", None)})
     flash("Welcome back.", "success")
 
-    # Only allow relative paths
-    if next_url.startswith("/"):
+    if next_url:
         return redirect(next_url)
 
     return redirect(url_for("admin.dashboard"))

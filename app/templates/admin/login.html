@@ -24,7 +24,7 @@
     {% endwith %}
 
     <form method="POST" action="{{ url_for('admin.login_post') }}">
-      <input type="hidden" name="next" value="{{ request.args.get('next', '') }}"/>
+      <input type="hidden" name="next" value="{{ next_url or '' }}"/>
 
       <div style="margin: 12px 0;">
         <label for="email" style="font-weight: 600;">Email</label><br/>

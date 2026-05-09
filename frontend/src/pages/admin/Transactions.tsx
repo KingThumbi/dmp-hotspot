@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiGetWithAuth } from "../../lib/api";
+import { adminLoginUrl } from "../../lib/adminAuth";
 
 type TransactionItem = {
   id: number;
@@ -169,7 +170,7 @@ export default function TransactionsPage() {
           </div>
           <p className="mt-2 text-black/70">{authError}</p>
           <a
-            href={`${import.meta.env.VITE_API_BASE_URL || ""}/admin/login`}
+            href={adminLoginUrl()}
             className="inline-block mt-4 px-5 py-3 rounded-xl bg-[var(--gold)] text-black font-extrabold"
           >
             Open Flask Admin Login

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGetWithAuth } from "../../lib/api";
+import { adminLoginUrl } from "../../lib/adminAuth";
 import { formatDateTime } from "../../utils/format";
 
 type RouterAction = {
@@ -385,7 +386,7 @@ export default function RouterActionsPage() {
           Admin login required
         </div>
         <a
-          href={`${import.meta.env.VITE_API_BASE_URL || ""}/admin/login`}
+          href={adminLoginUrl()}
           className="mt-4 inline-flex rounded-lg bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white"
         >
           Open Flask Admin Login

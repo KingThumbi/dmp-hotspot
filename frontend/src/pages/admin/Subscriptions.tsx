@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiGetWithAuth } from "../../lib/api";
+import { adminLoginUrl } from "../../lib/adminAuth";
 
 type SubscriptionItem = {
   id: number;
@@ -107,11 +108,6 @@ export default function SubscriptionsPage() {
   const [pagination, setPagination] =
     useState<SubscriptionsResponse["pagination"] | null>(null);
 
-  const loginUrl = useMemo(
-    () => `${import.meta.env.VITE_API_BASE_URL || ""}/admin/login`,
-    []
-  );
-
   useEffect(() => {
     let mounted = true;
 
@@ -199,7 +195,7 @@ export default function SubscriptionsPage() {
           </div>
           <p className="mt-2 text-black/70">{authError}</p>
           <a
-            href={loginUrl}
+            href={adminLoginUrl()}
             className="mt-4 inline-block rounded-xl bg-[var(--gold)] px-5 py-3 font-extrabold text-black"
           >
             Open Flask Admin Login
