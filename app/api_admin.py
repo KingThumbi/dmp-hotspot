@@ -24,6 +24,9 @@ from app.services.reminders import (
     send_sms,
     send_whatsapp,
 )
+from app.services.subscription_lifecycle import (
+    set_customer_service_state as lifecycle_set_customer_service_state,
+)
 
 api_admin_bp = Blueprint("api_admin", __name__)
 
@@ -458,45 +461,14 @@ def _set_customer_service_state(
     activate: bool,
     reason: str | None = None,
 ) -> list[Subscription]:
-    now = _now_utc()
-
-    if hasattr(customer, "is_active"):
-        customer.is_active = activate
-
-    if hasattr(customer, "updated_at"):
-        customer.updated_at = now
-
     subscriptions = _subscriptions_for_customer_query(customer.id).all()
-
-    for sub in subscriptions:
-        if hasattr(sub, "is_active"):
-            sub.is_active = activate
-
-        if hasattr(sub, "status"):
-            current_status = (getattr(sub, "status", None) or "").strip().lower()
-            if activate:
-                if current_status in {"", "inactive", "suspended", "active"}:
-                    sub.status = "active"
-            else:
-                if current_status not in {"cancelled"}:
-                    sub.status = "suspended"
-
-        if hasattr(sub, "updated_at"):
-            sub.updated_at = now
-
-        if not activate and hasattr(sub, "suspended_at"):
-            sub.suspended_at = now
-
-        if activate and hasattr(sub, "reconnected_at"):
-            sub.reconnected_at = now
-
-        if reason:
-            if not activate and hasattr(sub, "suspension_reason"):
-                sub.suspension_reason = reason
-            if activate and hasattr(sub, "reconnection_note"):
-                sub.reconnection_note = reason
-
-    return subscriptions
+    return lifecycle_set_customer_service_state(
+        customer,
+        subscriptions,
+        activate=activate,
+        reason=reason,
+        now=_now_utc(),
+    )
 
 
 def _sync_customer_to_mikrotik_later(customer: Customer, activate: bool):
@@ -1167,7 +1139,11 @@ def api_admin_resend_reminder(reminder_id: int):
         ok, provider_message_id, error_message = send_sms(phone, message_body)
         provider_name = row.provider or "sms"
     else:
-        ok, provider_message_id, error_message = send_whatsapp(phone, message_body)
+        ok, provider_message_id, error_message = send_whatsapp(
+            phone,
+            message_body,
+            reminder_type=reminder_type,
+        )
         provider_name = row.provider or "whatsapp"
 
         new_row = RenewalReminder(

@@ -117,6 +117,43 @@ def build_renewal_message(
     )
 
 
+def send_sms(phone: str, message: str) -> tuple[bool, str | None, str | None]:
+    """
+    Compatibility wrapper used by api_admin manual resend.
+
+    Keep the transport behavior delegated to send_sms_message.
+    """
+    result = send_sms_message(phone=phone, message=message)
+    return (
+        bool(result.get("ok")),
+        result.get("provider_message_id"),
+        result.get("error"),
+    )
+
+
+def send_whatsapp(
+    phone: str,
+    message: str,
+    reminder_type: str = "days_before_2",
+) -> tuple[bool, str | None, str | None]:
+    """
+    Compatibility wrapper used by api_admin manual resend.
+
+    WhatsApp reminders use approved templates, so this wrapper preserves the
+    existing template transport and does not attempt to send free-form text.
+    """
+    result = send_whatsapp_template_message(
+        phone=phone,
+        template_name=get_whatsapp_template_name(reminder_type),
+        components=None,
+    )
+    return (
+        bool(result.get("ok")),
+        result.get("provider_message_id"),
+        result.get("error"),
+    )
+
+
 def get_whatsapp_template_name(reminder_type: str) -> str:
     return WHATSAPP_TEMPLATE_BY_REMINDER_TYPE.get(
         reminder_type,
