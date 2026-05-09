@@ -1094,6 +1094,99 @@ class SubscriptionChangeLog(db.Model):
         index=True,
     )
 
+
+class RouterAction(db.Model):
+    """
+    Observe-only router action queue.
+
+    Phase 1 records intended router mutations for auditability. No worker consumes
+    these rows yet, and existing direct router execution remains authoritative.
+    """
+    __tablename__ = "router_actions"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    action_key = db.Column(db.String(180), nullable=False, unique=True, index=True)
+    status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="queued",
+        server_default=sa.text("'queued'"),
+        index=True,
+    )
+    action_type = db.Column(db.String(60), nullable=False, index=True)
+    service_type = db.Column(db.String(20), nullable=True, index=True)
+
+    subscription_id = db.Column(db.Integer, db.ForeignKey("subscriptions.id"), nullable=True, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True, index=True)
+    package_id = db.Column(db.Integer, db.ForeignKey("packages.id"), nullable=True, index=True)
+
+    # Future Router/RouterProfile models will replace this nullable placeholder.
+    router_id = db.Column(db.Integer, nullable=True, index=True)
+    identity = db.Column(db.String(80), nullable=True, index=True)
+    profile_name = db.Column(db.String(80), nullable=True)
+
+    priority = db.Column(
+        db.Integer,
+        nullable=False,
+        default=100,
+        server_default=sa.text("100"),
+        index=True,
+    )
+
+    payload_json = db.Column(db.Text, nullable=True)
+    result_json = db.Column(db.Text, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+
+    attempt_count = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=sa.text("0"),
+    )
+    max_attempts = db.Column(
+        db.Integer,
+        nullable=False,
+        default=5,
+        server_default=sa.text("5"),
+    )
+
+    next_run_at = db.Column(db.DateTime, nullable=True, index=True)
+    locked_at = db.Column(db.DateTime, nullable=True)
+    locked_by = db.Column(db.String(80), nullable=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+
+    created_by = db.Column(db.String(60), nullable=True, index=True)
+    created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admin_users.id"), nullable=True, index=True)
+    correlation_id = db.Column(db.String(120), nullable=True, index=True)
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+        index=True,
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
+        index=True,
+    )
+
+    subscription = db.relationship("Subscription", lazy="joined")
+    customer = db.relationship("Customer", lazy="joined")
+    package = db.relationship("Package", lazy="joined")
+    created_by_admin = db.relationship("AdminUser", lazy="joined")
+
+    __table_args__ = (
+        db.Index("ix_router_actions_status_next_run_at_priority", "status", "next_run_at", "priority"),
+    )
+
+
 class RenewalReminder(db.Model):
     __tablename__ = "renewal_reminders"
 
@@ -1144,4 +1237,4 @@ class RenewalReminder(db.Model):
             "channel",
             "reminder_type",
         ),
-    )    
+    )

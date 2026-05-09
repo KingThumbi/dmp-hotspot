@@ -29,6 +29,7 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
+from app.services.router_action_queue import safe_enqueue_router_action
 from app.services.router_actions import reconnect_subscription
 from app.services.subscription_lifecycle import apply_manual_payment_activation
 from werkzeug.security import generate_password_hash
@@ -1088,6 +1089,21 @@ def customer_manual_payment(customer_id: int) -> Response:
         },
     )
 
+    safe_enqueue_router_action(
+        action_type="subscription.reconnect",
+        subscription=sub,
+        reason="manual_payment_received",
+        created_by="manual_payment",
+        created_by_admin_id=getattr(current_user, "id", None),
+        correlation_id=f"transaction:{tx.id}",
+        payload={
+            "transaction_id": tx.id,
+            "receipt": receipt,
+            "amount": amount_int,
+        },
+        priority=50,
+    )
+
     # -----------------------------
     # Best-effort router/service reconnect
     # -----------------------------
@@ -2069,6 +2085,17 @@ def pppoe_create():
     # Optional router provisioning
     # -----------------------------
     if enable_now and sub.status == "active":
+        safe_enqueue_router_action(
+            action_type="subscription.reconnect",
+            subscription=sub,
+            reason="pppoe_create_enable_now",
+            created_by="admin_pppoe_create",
+            created_by_admin_id=getattr(current_user, "id", None),
+            correlation_id=f"pppoe_create:{sub.id}",
+            payload={"enable_now": True},
+            priority=50,
+        )
+
         try:
             agent_enable(sub.id)
         except Exception:
@@ -2191,6 +2218,17 @@ def subscription_enable(sub_id: int):
         flash("Missing username (pppoe_username/hotspot_username).", "error")
         audit("router_enable_failed", {"sub_id": sub.id, "service_type": sub.service_type, "reason": "missing_username"})
         return redirect(url_for("admin.subscriptions"))
+
+    safe_enqueue_router_action(
+        action_type="subscription.reconnect",
+        subscription=sub,
+        reason="admin_enable",
+        created_by="admin_enable",
+        created_by_admin_id=getattr(current_user, "id", None),
+        correlation_id=f"admin_enable:{sub.id}:{sub.expires_at.isoformat() if sub.expires_at else ''}:{sub.package_id}",
+        payload={"username": username},
+        priority=50,
+    )
 
     try:
         remaining_minutes = int((sub.expires_at - now).total_seconds() // 60)

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.extensions import db
 from app.models import Subscription
+from app.services.router_action_queue import safe_enqueue_router_action
 from app.services.router_actions import disconnect_subscription, reconnect_subscription
 from app.services.subscription_lifecycle import mark_subscription_expired
 
@@ -48,6 +49,15 @@ def sweep_expired_accounts() -> dict:
             )
             continue
 
+        safe_enqueue_router_action(
+            action_type="subscription.disconnect",
+            subscription=sub,
+            reason="expired",
+            created_by="pppoe_expiry_sweep",
+            correlation_id=f"expiry:{sub.id}:{sub.expires_at.isoformat() if sub.expires_at else ''}",
+            priority=40,
+        )
+
         try:
             action_result = disconnect_subscription(
                 sub,
@@ -81,6 +91,15 @@ def sweep_expired_accounts() -> dict:
 
 
 def reactivate_subscription_after_payment(sub: Subscription) -> dict:
+    safe_enqueue_router_action(
+        action_type="subscription.reconnect",
+        subscription=sub,
+        reason="payment_received",
+        created_by="pppoe_expiry_payment_reactivate",
+        correlation_id=f"payment_reactivate:{sub.id}:{sub.expires_at.isoformat() if sub.expires_at else ''}",
+        priority=50,
+    )
+
     result = reconnect_subscription(
         sub,
         reason="payment_received",

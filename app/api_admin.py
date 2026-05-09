@@ -13,6 +13,7 @@ from app.models import (
     Customer,
     PublicLead,
     RenewalReminder,
+    RouterAction,
     Subscription,
     Ticket,
     Transaction,
@@ -441,6 +442,38 @@ def _serialize_renewal_reminder(row: RenewalReminder) -> dict[str, Any]:
         "error_message": row.error_message,
         "sent_at": _iso(row.sent_at),
         "created_at": _iso(row.created_at),
+    }
+
+
+def _serialize_router_action(row: RouterAction) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "action_key": row.action_key,
+        "status": row.status,
+        "action_type": row.action_type,
+        "service_type": row.service_type,
+        "subscription_id": row.subscription_id,
+        "customer_id": row.customer_id,
+        "package_id": row.package_id,
+        "router_id": row.router_id,
+        "identity": row.identity,
+        "profile_name": row.profile_name,
+        "priority": row.priority,
+        "attempt_count": row.attempt_count,
+        "max_attempts": row.max_attempts,
+        "next_run_at": _iso(row.next_run_at),
+        "locked_at": _iso(row.locked_at),
+        "locked_by": row.locked_by,
+        "started_at": _iso(row.started_at),
+        "finished_at": _iso(row.finished_at),
+        "created_by": row.created_by,
+        "created_by_admin_id": row.created_by_admin_id,
+        "correlation_id": row.correlation_id,
+        "error_message": row.error_message,
+        "payload_json": row.payload_json,
+        "result_json": row.result_json,
+        "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at),
     }
 
 
@@ -980,6 +1013,88 @@ def admin_transaction_detail(tx_id: int):
         return _json_error("Transaction not found.", 404)
 
     return jsonify({"ok": True, "data": {"transaction": _serialize_transaction(tx)}})
+
+
+# =========================================================
+# Router action queue (read-only observe-only visibility)
+# =========================================================
+@api_admin_bp.get("/api/admin/router-actions")
+@admin_api_required
+def admin_router_actions():
+    page = max(_parse_int(request.args.get("page"), 1), 1)
+    per_page = min(max(_parse_int(request.args.get("per_page"), 20), 1), 100)
+
+    status = (request.args.get("status") or "").strip().lower()
+    action_type = (request.args.get("action_type") or "").strip()
+    service_type = (request.args.get("service_type") or "").strip().lower()
+    created_by = (request.args.get("created_by") or "").strip()
+    q = (request.args.get("q") or "").strip()
+
+    query = RouterAction.query
+
+    if status:
+        query = query.filter(RouterAction.status == status)
+    if action_type:
+        query = query.filter(RouterAction.action_type == action_type)
+    if service_type:
+        query = query.filter(RouterAction.service_type == service_type)
+    if created_by:
+        query = query.filter(RouterAction.created_by == created_by)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            or_(
+                RouterAction.action_key.ilike(like),
+                RouterAction.identity.ilike(like),
+                RouterAction.correlation_id.ilike(like),
+                RouterAction.payload_json.ilike(like),
+            )
+        )
+
+    query = query.order_by(RouterAction.created_at.desc(), RouterAction.id.desc())
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    return jsonify(
+        {
+            "ok": True,
+            "data": [_serialize_router_action(item) for item in pagination.items],
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_next": pagination.has_next,
+                "has_prev": pagination.has_prev,
+            },
+        }
+    )
+
+
+@api_admin_bp.get("/api/admin/router-actions/summary")
+@admin_api_required
+def admin_router_actions_summary():
+    total = _safe_count(RouterAction.query)
+    by_status_rows = (
+        db.session.query(RouterAction.status, func.count(RouterAction.id))
+        .group_by(RouterAction.status)
+        .all()
+    )
+    by_action_rows = (
+        db.session.query(RouterAction.action_type, func.count(RouterAction.id))
+        .group_by(RouterAction.action_type)
+        .all()
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "summary": {
+                "total": total,
+                "by_status": {status or "unknown": count for status, count in by_status_rows},
+                "by_action_type": {action or "unknown": count for action, count in by_action_rows},
+            },
+        }
+    )
 
 
 # =========================================================

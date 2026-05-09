@@ -293,6 +293,7 @@ def _activate_subscription_and_router(payment: MpesaPayment) -> None:
     """
     try:
         from app.models import Subscription
+        from app.services.router_action_queue import safe_enqueue_router_action
         from app.services.router_actions import reconnect_subscription
 
         sub = Subscription.query.get(payment.subscription_id) if payment.subscription_id else None
@@ -307,6 +308,20 @@ def _activate_subscription_and_router(payment: MpesaPayment) -> None:
 
         if not sub:
             return
+
+        safe_enqueue_router_action(
+            action_type="subscription.reconnect",
+            subscription=sub,
+            reason="payment_received",
+            created_by="mpesa_payment",
+            correlation_id=f"mpesa_payment:{payment.id}",
+            payload={
+                "payment_id": payment.id,
+                "mpesa_receipt": getattr(payment, "mpesa_receipt", None),
+                "checkout_request_id": getattr(payment, "checkout_request_id", None),
+            },
+            priority=50,
+        )
 
         dry_run = bool(current_app.config.get("ROUTER_AUTOMATION_DRY_RUN", False))
 

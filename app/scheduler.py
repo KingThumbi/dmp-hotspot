@@ -15,6 +15,7 @@ from app.services.reminders import (
     send_disconnect_reminder,
     send_due_renewal_reminders,
 )
+from app.services.router_action_queue import safe_enqueue_router_action
 from app.services.router_actions import disconnect_subscription
 from app.services.subscription_lifecycle import mark_subscription_expired
 
@@ -154,6 +155,15 @@ def enforce_pppoe_expiry(app, dry_run: bool = True) -> None:
                 )
                 continue
 
+            safe_enqueue_router_action(
+                action_type="subscription.disconnect",
+                subscription=sub,
+                reason="expired",
+                created_by="scheduler_pppoe_expiry",
+                correlation_id=f"expiry:{sub.id}:{sub.expires_at.isoformat() if sub.expires_at else ''}",
+                priority=40,
+            )
+
             try:
                 result = disconnect_subscription(
                     sub,
@@ -244,6 +254,15 @@ def enforce_hotspot_expiry(app, dry_run: bool = True) -> None:
                     user,
                 )
                 continue
+
+            safe_enqueue_router_action(
+                action_type="subscription.disconnect",
+                subscription=sub,
+                reason="expired",
+                created_by="scheduler_hotspot_expiry",
+                correlation_id=f"expiry:{sub.id}:{sub.expires_at.isoformat() if sub.expires_at else ''}",
+                priority=40,
+            )
 
             try:
                 result = disconnect_subscription(
