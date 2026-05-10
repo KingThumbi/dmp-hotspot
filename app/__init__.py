@@ -7,7 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from flask import Flask, abort, current_app as flask_current_app, request, send_from_directory
+from flask import Flask, abort, current_app as flask_current_app, redirect, request, send_from_directory
 from flask_cors import CORS
 
 #from app.cli.pppoe_jobs import sweep_expired_pppoe_command
@@ -48,6 +48,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_csv(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip().lower() for item in raw.split(",") if item.strip()]
+
+
 def _cors_allowed_origins() -> list[str]:
     # Keep explicit list to avoid accidental wildcard in prod.
     return [
@@ -61,6 +66,37 @@ def _cors_allowed_origins() -> list[str]:
 
 def _frontend_dist_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+def _admin_redirect_host(host: str) -> str:
+    return host.rsplit(":", 1)[0].strip().lower()
+
+
+def _is_browser_admin_path(path: str) -> bool:
+    if not (
+        path == "/admin"
+        or path.startswith("/admin/")
+        or path == "/admin-ui"
+        or path.startswith("/admin-ui/")
+    ):
+        return False
+
+    static_suffixes = {
+        ".css",
+        ".gif",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".map",
+        ".png",
+        ".svg",
+        ".ttf",
+        ".webp",
+        ".woff",
+        ".woff2",
+    }
+    return Path(path).suffix.lower() not in static_suffixes
 
 
 def create_app() -> Flask:
@@ -105,6 +141,13 @@ def create_app() -> Flask:
     app.config["ROUTER_RECONCILE_INTERVAL_MINUTES"] = _env_int("ROUTER_RECONCILE_INTERVAL_MINUTES", 15)
 
     app.config["ROUTER_AUTOMATION_DRY_RUN"] = _env_flag("ROUTER_AUTOMATION_DRY_RUN", False)
+
+    app.config["ENABLE_CANONICAL_ADMIN_REDIRECT"] = _env_flag("ENABLE_CANONICAL_ADMIN_REDIRECT", False)
+    app.config["CANONICAL_ADMIN_HOST"] = os.getenv("CANONICAL_ADMIN_HOST", "").strip().lower()
+    app.config["CANONICAL_ADMIN_REDIRECT_FROM_HOSTS"] = _env_csv(
+        "CANONICAL_ADMIN_REDIRECT_FROM_HOSTS",
+        "dmp-hotspot.onrender.com",
+    )
     # ---------------------------------------------------------
     # 6) Logging
     # ---------------------------------------------------------
@@ -210,6 +253,26 @@ def create_app() -> Flask:
     # 12) Optional central exemption hook
     # (keep this ONLY if you have global redirects/auth guards elsewhere)
     # ---------------------------------------------------------
+    @app.before_request
+    def _canonical_admin_host_redirect():
+        if not app.config.get("ENABLE_CANONICAL_ADMIN_REDIRECT", False):
+            return None
+
+        canonical_host = (app.config.get("CANONICAL_ADMIN_HOST") or "").strip().lower()
+        if not canonical_host:
+            return None
+
+        if not _is_browser_admin_path(request.path):
+            return None
+
+        request_host = _admin_redirect_host(request.host or "")
+        redirect_from = set(app.config.get("CANONICAL_ADMIN_REDIRECT_FROM_HOSTS") or [])
+        if request_host not in redirect_from or request_host == canonical_host:
+            return None
+
+        target = f"https://{canonical_host}{request.full_path if request.query_string else request.path}"
+        return redirect(target, code=302 if request.method in {"GET", "HEAD"} else 307)
+
     @app.before_request
     def _router_api_exemptions():
         if request.path.startswith("/api/router/"):
