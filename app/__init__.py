@@ -7,7 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from flask import Flask, current_app as flask_current_app, request
+from flask import Flask, abort, current_app as flask_current_app, request, send_from_directory
 from flask_cors import CORS
 
 #from app.cli.pppoe_jobs import sweep_expired_pppoe_command
@@ -57,6 +57,10 @@ def _cors_allowed_origins() -> list[str]:
         "https://dmp-hotspot-1.onrender.com"
         # Add your frontend hosting URL later (Render/Vercel/CF Pages/etc.)
     ]
+
+
+def _frontend_dist_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def create_app() -> Flask:
@@ -159,6 +163,48 @@ def create_app() -> Flask:
     @app.get("/_ping")
     def ping():
         return {"service": "dmp-hotspot", "status": "running"}
+
+    # ---------------------------------------------------------
+    # 11b) React admin UI static fallback
+    # Serves built frontend assets only when they are present in
+    # the backend release. This keeps Flask /admin/* and /api/*
+    # routes authoritative while allowing React admin deep links.
+    # ---------------------------------------------------------
+    frontend_dist_dir = _frontend_dist_dir()
+    frontend_assets_dir = frontend_dist_dir / "assets"
+    frontend_index_file = frontend_dist_dir / "index.html"
+
+    @app.get("/assets/<path:filename>")
+    def react_admin_assets(filename: str):
+        if not frontend_assets_dir.is_dir():
+            abort(404)
+        return send_from_directory(frontend_assets_dir, filename)
+
+    @app.get("/logo.png")
+    @app.get("/vite.svg")
+    def react_admin_public_asset():
+        filename = Path(request.path).name
+        asset_file = frontend_dist_dir / filename
+        if not asset_file.is_file():
+            abort(404)
+        return send_from_directory(frontend_dist_dir, filename)
+
+    @app.get("/admin-ui")
+    @app.get("/admin-ui/")
+    @app.get("/admin-ui/<path:path>")
+    def react_admin_ui(path: str = ""):
+        if path and "." in Path(path).name:
+            abort(404)
+
+        if not frontend_index_file.is_file():
+            app.logger.warning(
+                "React admin UI build missing; cannot serve path=%s expected_index=%s",
+                request.path,
+                frontend_index_file,
+            )
+            abort(404)
+
+        return send_from_directory(frontend_dist_dir, "index.html")
 
     # ---------------------------------------------------------
     # 12) Optional central exemption hook
