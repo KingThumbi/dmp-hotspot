@@ -37,6 +37,29 @@ def test_admin_ui_deep_link_serves_react_index(monkeypatch, tmp_path):
     assert b'id="root"' in response.data
 
 
+def test_admin_ui_named_deep_links_serve_react_index(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text(
+        '<!doctype html><html><body><div id="root">react-admin</div></body></html>',
+        encoding="utf-8",
+    )
+
+    client = _make_app(monkeypatch, dist_dir).test_client()
+
+    for path in (
+        "/admin-ui",
+        "/admin-ui/dashboard",
+        "/admin-ui/transactions",
+        "/admin-ui/router-actions",
+    ):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert response.content_type.startswith("text/html")
+        assert b"react-admin" in response.data
+
+
 def test_admin_ui_does_not_serve_index_for_static_file_paths(monkeypatch, tmp_path):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()

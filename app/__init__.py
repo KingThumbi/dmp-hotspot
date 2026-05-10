@@ -216,10 +216,22 @@ def create_app() -> Flask:
     frontend_dist_dir = _frontend_dist_dir()
     frontend_assets_dir = frontend_dist_dir / "assets"
     frontend_index_file = frontend_dist_dir / "index.html"
+    app.logger.info(
+        "React admin build resolved: frontend_dist=%s index_exists=%s assets_dir_exists=%s",
+        frontend_dist_dir,
+        frontend_index_file.is_file(),
+        frontend_assets_dir.is_dir(),
+    )
 
     @app.get("/assets/<path:filename>")
     def react_admin_assets(filename: str):
         if not frontend_assets_dir.is_dir():
+            app.logger.warning(
+                "React admin asset directory missing; cannot serve asset=%s frontend_dist=%s assets_dir=%s",
+                filename,
+                frontend_dist_dir,
+                frontend_assets_dir,
+            )
             abort(404)
         return send_from_directory(frontend_assets_dir, filename)
 
@@ -229,6 +241,12 @@ def create_app() -> Flask:
         filename = Path(request.path).name
         asset_file = frontend_dist_dir / filename
         if not asset_file.is_file():
+            app.logger.warning(
+                "React admin public asset missing; cannot serve path=%s asset_file=%s frontend_dist=%s",
+                request.path,
+                asset_file,
+                frontend_dist_dir,
+            )
             abort(404)
         return send_from_directory(frontend_dist_dir, filename)
 
@@ -241,9 +259,13 @@ def create_app() -> Flask:
 
         if not frontend_index_file.is_file():
             app.logger.warning(
-                "React admin UI build missing; cannot serve path=%s expected_index=%s",
+                "React admin UI build missing; cannot serve path=%s frontend_dist=%s expected_index=%s "
+                "dist_exists=%s assets_dir_exists=%s",
                 request.path,
+                frontend_dist_dir,
                 frontend_index_file,
+                frontend_dist_dir.is_dir(),
+                frontend_assets_dir.is_dir(),
             )
             abort(404)
 
