@@ -33,6 +33,20 @@ function apiUrl(path: string): string {
 // -----------------------------
 // Helpers
 // -----------------------------
+export class ApiRequestError extends Error {
+  status: number | null;
+  url: string;
+  payload: unknown;
+
+  constructor(message: string, options: { status?: number | null; url: string; payload?: unknown }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = options.status ?? null;
+    this.url = options.url;
+    this.payload = options.payload ?? null;
+  }
+}
+
 async function parseJsonSafe(res: Response): Promise<any> {
   try {
     return await res.json();
@@ -42,6 +56,10 @@ async function parseJsonSafe(res: Response): Promise<any> {
 }
 
 function extractErrorMessage(payload: any, status: number): string {
+  if (status === 401) return "Authentication required.";
+  if (status === 403) return "You do not have permission to access this admin resource.";
+  if (status >= 500) return "The server had a problem while loading this admin data.";
+
   return (
     payload?.error ||
     payload?.message ||
@@ -79,16 +97,31 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       method,
       error,
     });
-    throw new Error("Could not reach the server.");
+    throw new ApiRequestError("Could not reach the server.", {
+      status: null,
+      url,
+      payload: { original_error: error },
+    });
   }
 
   const payload = await parseJsonSafe(res);
 
   if (!res.ok) {
-    throw new Error(extractErrorMessage(payload, res.status));
+    const message = extractErrorMessage(payload, res.status);
+    console.error("API request returned an error response.", {
+      url,
+      method,
+      status: res.status,
+      payload,
+    });
+    throw new ApiRequestError(message, {
+      status: res.status,
+      url,
+      payload,
+    });
   }
 
-  return payload as T;
+  return (payload ?? {}) as T;
 }
 
 // -----------------------------

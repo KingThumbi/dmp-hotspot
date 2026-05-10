@@ -118,7 +118,7 @@ export default function TransactionDetailPage() {
         );
 
         if (!mounted) return;
-        setItem(res.data.transaction);
+        setItem(res?.data?.transaction ?? null);
       } catch (err: any) {
         if (!mounted) return;
 

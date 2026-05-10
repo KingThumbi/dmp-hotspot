@@ -89,8 +89,8 @@ export default function PublicLeadsPage() {
 
         if (!mounted) return;
 
-        setLeads(res.data || []);
-        setPagination(res.pagination);
+        setLeads(Array.isArray(res?.data) ? res.data : []);
+        setPagination(res?.pagination ?? null);
       } catch (err: any) {
         if (!mounted) return;
 

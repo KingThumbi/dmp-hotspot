@@ -334,8 +334,8 @@ export default function RouterActionsPage() {
         ),
       ]);
 
-      setItems(actionsRes.data || []);
-      setSummary(summaryRes.summary || null);
+      setItems(Array.isArray(actionsRes?.data) ? actionsRes.data : []);
+      setSummary(summaryRes?.summary ?? null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load router actions.";
       if (message.toLowerCase().includes("authentication")) {

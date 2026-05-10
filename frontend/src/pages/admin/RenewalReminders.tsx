@@ -144,8 +144,8 @@ export default function RenewalReminders() {
         apiGetWithAuth<ReminderSummaryResponse>("/api/admin/reminders/summary"),
       ]);
 
-      setItems(itemsRes.items || []);
-      setSummary(summaryRes.summary || null);
+      setItems(Array.isArray(itemsRes?.items) ? itemsRes.items : []);
+      setSummary(summaryRes?.summary ?? null);
     } catch (error) {
       console.error("Failed to load reminder data", error);
       setItems([]);

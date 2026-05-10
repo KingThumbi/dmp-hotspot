@@ -25,6 +25,16 @@ type DashboardSummaryResponse = {
   };
 };
 
+const emptySummary: DashboardSummaryResponse["data"] = {
+  total_customers: 0,
+  total_subscriptions: 0,
+  active_subscriptions: 0,
+  expired_subscriptions: 0,
+  open_tickets: 0,
+  public_leads: 0,
+  new_public_leads: 0,
+};
+
 function StatCard({
   label,
   value,
@@ -59,6 +69,10 @@ export default function AdminDashboardPage() {
         const me = await apiGetWithAuth<AdminMeResponse>("/api/admin/auth/me");
         if (!mounted) return;
 
+        if (!me?.user) {
+          throw new Error("Authentication required.");
+        }
+
         setUser(me.user);
 
         const dash = await apiGetWithAuth<DashboardSummaryResponse>(
@@ -66,7 +80,7 @@ export default function AdminDashboardPage() {
         );
         if (!mounted) return;
 
-        setSummary(dash.data);
+        setSummary(dash?.data ?? emptySummary);
       } catch (err: any) {
         if (!mounted) return;
 

@@ -125,11 +125,11 @@ export default function CustomerDetail() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  function applyPayload(payload: CustomerDetailData) {
-    setCustomer(payload.customer || null);
-    setSubscriptions(payload.subscriptions || []);
-    setTickets(payload.tickets || []);
-    setLocations(payload.locations || []);
+  function applyPayload(payload: CustomerDetailData | null | undefined) {
+    setCustomer(payload?.customer || null);
+    setSubscriptions(Array.isArray(payload?.subscriptions) ? payload.subscriptions : []);
+    setTickets(Array.isArray(payload?.tickets) ? payload.tickets : []);
+    setLocations(Array.isArray(payload?.locations) ? payload.locations : []);
   }
 
   async function loadCustomerDetail() {
@@ -140,6 +140,9 @@ export default function CustomerDetail() {
 
     try {
       const res = await apiGetWithAuth<CustomerDetailResponse>(`/api/admin/customers/${customerId}`);
+      if (!res?.data) {
+        throw new Error("Customer detail response was empty.");
+      }
       applyPayload(res.data);
     } catch (err: any) {
       setError(err.message || "Failed to load customer.");
@@ -170,8 +173,8 @@ export default function CustomerDetail() {
         { reason: "Suspended by admin from Customer Detail page" }
       );
 
-      applyPayload(res.data);
-      setMessage(res.message || "Customer suspended successfully.");
+      applyPayload(res?.data);
+      setMessage(res?.message || "Customer suspended successfully.");
     } catch (err: any) {
       setError(err.message || "Failed to suspend customer.");
     } finally {
@@ -197,8 +200,8 @@ export default function CustomerDetail() {
         { reason: "Reconnected by admin from Customer Detail page" }
       );
 
-      applyPayload(res.data);
-      setMessage(res.message || "Customer reconnected successfully.");
+      applyPayload(res?.data);
+      setMessage(res?.message || "Customer reconnected successfully.");
     } catch (err: any) {
       setError(err.message || "Failed to reconnect customer.");
     } finally {

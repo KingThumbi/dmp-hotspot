@@ -131,8 +131,8 @@ export default function SubscriptionsPage() {
 
         if (!mounted) return;
 
-        setItems(Array.isArray(res.data) ? res.data : []);
-        setPagination(res.pagination || null);
+        setItems(Array.isArray(res?.data) ? res.data : []);
+        setPagination(res?.pagination ?? null);
       } catch (err: any) {
         if (!mounted) return;
 

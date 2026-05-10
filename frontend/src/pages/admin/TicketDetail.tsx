@@ -108,7 +108,7 @@ export default function TicketDetailPage() {
       try {
         const res = await apiGetWithAuth<TicketDetailResponse>(`/api/admin/tickets/${id}`);
         if (!mounted) return;
-        setData(res.data);
+        setData(res?.data ?? null);
       } catch (err: any) {
         if (!mounted) return;
         const msg = err?.message || "Failed to load ticket detail.";

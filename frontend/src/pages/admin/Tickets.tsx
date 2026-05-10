@@ -110,8 +110,8 @@ export default function TicketsPage() {
         );
 
         if (!mounted) return;
-        setTickets(res.data || []);
-        setPagination(res.pagination);
+        setTickets(Array.isArray(res?.data) ? res.data : []);
+        setPagination(res?.pagination ?? null);
       } catch (err: any) {
         if (!mounted) return;
         const msg = err?.message || "Failed to load tickets.";

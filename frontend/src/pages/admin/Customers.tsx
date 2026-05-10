@@ -85,8 +85,8 @@ export default function CustomersPage() {
         );
 
         if (!mounted) return;
-        setCustomers(res.data || []);
-        setPagination(res.pagination);
+        setCustomers(Array.isArray(res?.data) ? res.data : []);
+        setPagination(res?.pagination ?? null);
       } catch (err: any) {
         if (!mounted) return;
         const msg = err?.message || "Failed to load customers.";
