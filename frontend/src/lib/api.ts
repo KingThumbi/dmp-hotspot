@@ -1,4 +1,34 @@
-const BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+
+function isLocalApiBase(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function apiBase(): string {
+  if (!RAW_API_BASE) {
+    return "";
+  }
+
+  if (import.meta.env.PROD && isLocalApiBase(RAW_API_BASE)) {
+    console.warn(
+      "Ignoring local VITE_API_BASE_URL in production build; using same-origin API paths.",
+      { configuredBase: RAW_API_BASE }
+    );
+    return "";
+  }
+
+  return RAW_API_BASE;
+}
+
+function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${apiBase()}${normalizedPath}`;
+}
 
 // -----------------------------
 // Helpers
@@ -32,9 +62,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const { method = "GET", body, auth = false } = options;
 
   let res: Response;
+  const url = apiUrl(path);
 
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(url, {
       method,
       credentials: auth ? "include" : "same-origin",
       headers: {
@@ -42,7 +73,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (error) {
+    console.error("API request failed before receiving a response.", {
+      url,
+      method,
+      error,
+    });
     throw new Error("Could not reach the server.");
   }
 
