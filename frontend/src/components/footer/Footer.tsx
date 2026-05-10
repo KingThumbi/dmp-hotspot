@@ -133,7 +133,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="/admin/dashboard"
+                  href="/admin/login"
                   className="group inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition hover:translate-x-1 hover:text-white"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-white/30 transition group-hover:bg-[var(--gold)]" />
