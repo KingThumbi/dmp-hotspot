@@ -8,6 +8,7 @@ import math
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 from app.services.notify import notify_admin_new_lead
@@ -24,6 +25,7 @@ from flask import (
     render_template,
     request,
     session,
+    send_from_directory,
     url_for,
 )
 from sqlalchemy import desc, func
@@ -652,9 +654,60 @@ def compute_pppoe_charge(
 # =========================================================
 # Public routes
 # =========================================================
+PUBLIC_REACT_ROUTES = (
+    "/",
+    "/packages",
+    "/coverage",
+    "/shop",
+    "/support",
+    "/contact",
+    "/about",
+    "/privacy",
+    "/terms",
+    "/acceptable-use",
+    "/refund-policy",
+    "/service-level-agreement",
+    "/data-deletion",
+    "/sla",
+)
+
+
+def _frontend_dist_dir() -> Path:
+    configured = current_app.config.get("FRONTEND_DIST_DIR")
+    if configured:
+        return Path(str(configured))
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+def _serve_public_react_index():
+    frontend_dist_dir = _frontend_dist_dir()
+    frontend_index_file = frontend_dist_dir / "index.html"
+
+    if frontend_index_file.is_file():
+        return send_from_directory(frontend_dist_dir, "index.html")
+
+    current_app.logger.warning(
+        "React public website build missing; cannot serve path=%s frontend_dist=%s expected_index=%s "
+        "dist_exists=%s",
+        request.path,
+        frontend_dist_dir,
+        frontend_index_file,
+        frontend_dist_dir.is_dir(),
+    )
+
+    if request.path == "/":
+        return redirect(url_for("main.pay_page"))
+
+    abort(404)
+
+
 @main.get("/")
 def home():
-    return redirect(url_for("main.pay_page"))
+    return _serve_public_react_index()
+
+
+for _react_route in PUBLIC_REACT_ROUTES[1:]:
+    main.add_url_rule(_react_route, endpoint=f"react_public_{_react_route.strip('/').replace('-', '_')}", view_func=_serve_public_react_index)
 
 
 @main.get("/pay")

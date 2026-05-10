@@ -216,8 +216,9 @@ def create_app() -> Flask:
     frontend_dist_dir = _frontend_dist_dir()
     frontend_assets_dir = frontend_dist_dir / "assets"
     frontend_index_file = frontend_dist_dir / "index.html"
+    app.config["FRONTEND_DIST_DIR"] = str(frontend_dist_dir)
     app.logger.info(
-        "React admin build resolved: frontend_dist=%s index_exists=%s assets_dir_exists=%s",
+        "React frontend build resolved: frontend_dist=%s index_exists=%s assets_dir_exists=%s",
         frontend_dist_dir,
         frontend_index_file.is_file(),
         frontend_assets_dir.is_dir(),

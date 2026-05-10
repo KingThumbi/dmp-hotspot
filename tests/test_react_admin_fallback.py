@@ -60,6 +60,46 @@ def test_admin_ui_named_deep_links_serve_react_index(monkeypatch, tmp_path):
         assert b"react-admin" in response.data
 
 
+def test_public_react_routes_serve_index_without_intercepting_flask_routes(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text(
+        '<!doctype html><html><body><div id="root">public-react</div></body></html>',
+        encoding="utf-8",
+    )
+
+    app = _make_app(monkeypatch, dist_dir)
+
+    from app.extensions import db
+    from app.models import Package
+
+    with app.app_context():
+        db.metadata.create_all(db.engine, tables=[Package.__table__])
+
+    client = app.test_client()
+
+    for path in ("/", "/packages", "/coverage", "/shop", "/support", "/contact"):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert response.content_type.startswith("text/html")
+        assert b"public-react" in response.data
+
+    admin_response = client.get("/admin/login")
+    admin_ui_response = client.get("/admin-ui/dashboard")
+    pay_response = client.get("/pay")
+    health_response = client.get("/health")
+
+    assert admin_response.status_code == 200
+    assert b"public-react" not in admin_response.data
+    assert admin_ui_response.status_code == 200
+    assert b"public-react" in admin_ui_response.data
+    assert pay_response.status_code == 200
+    assert b"public-react" not in pay_response.data
+    assert health_response.status_code == 200
+    assert health_response.is_json
+
+
 def test_admin_ui_does_not_serve_index_for_static_file_paths(monkeypatch, tmp_path):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
