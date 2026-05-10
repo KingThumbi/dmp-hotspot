@@ -14,7 +14,7 @@ const legalLinks = [
   { label: "Acceptable Use Policy", to: "/acceptable-use" },
   { label: "Refund Policy", to: "/refund-policy" },
   { label: "Service Level Agreement", to: "/service-level-agreement" },
-  { label: "Data Deletion Instructions", to: "/data-deletion" }, // ✅ ADD THIS
+  { label: "Data Deletion Instructions", to: "/data-deletion" },
 ];
 
 export default function Footer() {
@@ -65,7 +65,7 @@ export default function Footer() {
         </div>
 
         {/* Main footer grid */}
-        <div className="grid gap-10 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-10 md:grid-cols-2 xl:grid-cols-5">
           {/* Brand */}
           <div>
             <div className="flex items-center gap-4">
@@ -113,6 +113,40 @@ export default function Footer() {
                 </li>
               ))}
             </ul>
+          </div>
+
+          {/* Operations */}
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-[0.18em] text-yellow-300">
+              Operations
+            </h3>
+
+            <ul className="mt-5 space-y-3">
+              <li>
+                <Link
+                  to="/admin-ui/dashboard"
+                  className="group inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition hover:translate-x-1 hover:text-white"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--gold)]/80 transition group-hover:bg-[var(--gold)]" />
+                  Operations Portal
+                </Link>
+              </li>
+              <li>
+                <a
+                  href="/admin/dashboard"
+                  className="group inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition hover:translate-x-1 hover:text-white"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-white/30 transition group-hover:bg-[var(--gold)]" />
+                  Legacy Admin
+                </a>
+              </li>
+            </ul>
+
+            <div className="mt-6 rounded-2xl border border-[var(--gold)]/20 bg-[var(--navy)]/20 px-4 py-3">
+              <p className="text-xs font-bold leading-5 text-slate-300">
+                Staff access for network and customer operations.
+              </p>
+            </div>
           </div>
 
           {/* Contact */}
