@@ -27,6 +27,7 @@ import SubscriptionsPage from "./pages/admin/Subscriptions";
 import TicketDetailPage from "./pages/admin/TicketDetail";
 import TicketsPage from "./pages/admin/Tickets";
 import TransactionDetailPage from "./pages/admin/TransactionDetail";
+import TransactionReceiptPage from "./pages/admin/TransactionReceipt";
 import TransactionsPage from "./pages/admin/Transactions";
 
 function ComingSoonPage({ title }: { title: string }) {
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="subscriptions" element={<SubscriptionsPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
+          <Route path="transactions/:id/receipt" element={<TransactionReceiptPage />} />
           <Route path="transactions/:id" element={<TransactionDetailPage />} />
           <Route path="reminders" element={<RenewalRemindersPage />} />
           <Route path="router-actions" element={<RouterActionsPage />} />

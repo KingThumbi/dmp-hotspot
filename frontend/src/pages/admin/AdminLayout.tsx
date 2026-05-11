@@ -27,14 +27,14 @@ export default function AdminLayout() {
     <section className="min-h-screen bg-[var(--gray-light)]">
       <div className="container-page py-6">
         {/* Header */}
-        <header className="mb-6">
+        <header className="mb-6 print:hidden">
           <h1 className="text-2xl font-extrabold text-[var(--navy)]">
             Dmpolin Admin
           </h1>
         </header>
 
         {/* Navigation */}
-        <nav className="mb-6 flex flex-wrap gap-3">
+        <nav className="mb-6 flex flex-wrap gap-3 print:hidden">
           <NavLink to="/admin-ui/dashboard" label="Dashboard" />
           <NavLink to="/admin-ui/leads" label="Leads" />
           <NavLink to="/admin-ui/tickets" label="Tickets" />

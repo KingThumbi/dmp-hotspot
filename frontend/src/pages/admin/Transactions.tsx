@@ -79,6 +79,10 @@ function primaryReference(item: TransactionItem) {
   );
 }
 
+function isPaidTransaction(item: TransactionItem) {
+  return ["success", "completed"].includes((item.status || "").toLowerCase());
+}
+
 function money(value: number) {
   return `KES ${value.toLocaleString()}`;
 }
@@ -528,13 +532,14 @@ export default function TransactionsPage() {
                     <th className="px-4 py-3">
                       <SortHeader label="Created" sortKey="created" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
+                    <th className="px-4 py-3 font-bold text-black/70">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="px-4 py-8 text-center text-black/55"
                       >
                         No transactions found.
@@ -592,6 +597,21 @@ export default function TransactionsPage() {
 
                           <td className="px-4 py-4 text-black/55 whitespace-nowrap">
                             {formatDate(item.created_at)}
+                          </td>
+
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            {isPaidTransaction(item) ? (
+                              <Link
+                                to={`/admin-ui/transactions/${item.id}/receipt`}
+                                className="inline-flex rounded-xl bg-[var(--gold)] px-3 py-2 text-xs font-black text-black shadow-[0_4px_0_rgba(0,0,0,0.18)] transition hover:-translate-y-0.5 active:translate-y-0.5"
+                              >
+                                Print Receipt
+                              </Link>
+                            ) : (
+                              <span className="text-xs font-semibold text-black/40">
+                                —
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );

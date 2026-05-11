@@ -429,6 +429,48 @@ def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
     }
 
 
+def _serialize_receipt_subscription(subscription: Subscription | None) -> dict[str, Any] | None:
+    if subscription is None:
+        return None
+
+    package = getattr(subscription, "package", None)
+    package_name = None
+    if package is not None:
+        package_name = getattr(package, "name", None) or getattr(package, "code", None)
+
+    return {
+        "id": getattr(subscription, "id", None),
+        "status": getattr(subscription, "status", None),
+        "service_type": getattr(subscription, "service_type", None),
+        "username": subscription.identity() if hasattr(subscription, "identity") else None,
+        "package_name": package_name,
+        "starts_at": _iso(getattr(subscription, "starts_at", None)),
+        "expires_at": _iso(getattr(subscription, "expires_at", None)),
+        "created_at": _iso(getattr(subscription, "created_at", None)),
+    }
+
+
+def _receipt_subscription_for_transaction(tx: Transaction) -> Subscription | None:
+    try:
+        subscription = (
+            Subscription.query.filter(Subscription.last_tx_id == tx.id)
+            .order_by(Subscription.created_at.desc())
+            .first()
+        )
+        if subscription is not None:
+            return subscription
+    except Exception:
+        pass
+
+    try:
+        query = Subscription.query.filter(Subscription.customer_id == tx.customer_id)
+        if getattr(tx, "package_id", None) is not None:
+            query = query.filter(Subscription.package_id == tx.package_id)
+        return query.order_by(Subscription.created_at.desc()).first()
+    except Exception:
+        return None
+
+
 def _serialize_renewal_reminder(row: RenewalReminder) -> dict[str, Any]:
     customer = getattr(row, "customer", None)
     subscription = getattr(row, "subscription", None)
@@ -1248,6 +1290,27 @@ def admin_transaction_detail(tx_id: int):
         return _json_error("Transaction not found.", 404)
 
     return jsonify({"ok": True, "data": {"transaction": _serialize_transaction(tx)}})
+
+
+@api_admin_bp.get("/api/admin/transactions/<int:tx_id>/receipt")
+@admin_api_required
+def admin_transaction_receipt(tx_id: int):
+    tx = Transaction.query.get(tx_id)
+    if not tx:
+        return _json_error("Transaction not found.", 404)
+
+    return jsonify(
+        {
+            "ok": True,
+            "data": {
+                "transaction": _serialize_transaction(tx),
+                "subscription": _serialize_receipt_subscription(
+                    _receipt_subscription_for_transaction(tx)
+                ),
+                "generated_by": _current_user_payload(),
+            },
+        }
+    )
 
 
 # =========================================================
