@@ -1,7 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGetWithAuth } from "../../lib/api";
 import { adminLoginUrl } from "../../lib/adminAuth";
 import { Link } from "react-router-dom";
+import {
+  SortHeader,
+  adminGoldButtonClass,
+  adminInputClass,
+  adminPrimaryButtonClass,
+  adminSecondaryButtonClass,
+  downloadCsv,
+  nextSortState,
+  reportFilename,
+  sortRows,
+  type CsvColumn,
+  type SortState,
+} from "../../components/admin/TableTools";
 type CustomerItem = {
   id: number;
   full_name: string | null;
@@ -31,6 +44,8 @@ type CustomersResponse = {
   };
 };
 
+type CustomerSortKey = "name" | "phone" | "email" | "account" | "city" | "status" | "created";
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   const d = new Date(value);
@@ -54,6 +69,11 @@ function StatusPill({ active }: { active: boolean | null }) {
   );
 }
 
+function customerStatus(customer: CustomerItem) {
+  if (customer.is_active === null) return "";
+  return customer.is_active ? "Active" : "Inactive";
+}
+
 export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
@@ -64,6 +84,25 @@ export default function CustomersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<CustomersResponse["pagination"] | null>(null);
+  const [sort, setSort] = useState<SortState<CustomerSortKey>>({
+    key: "created",
+    direction: "desc",
+  });
+  const [exporting, setExporting] = useState(false);
+
+  const sortedCustomers = useMemo(
+    () =>
+      sortRows<CustomerItem, CustomerSortKey>(customers, sort, {
+        name: (customer) => customer.full_name,
+        phone: (customer) => customer.phone,
+        email: (customer) => customer.email,
+        account: (customer) => customer.account_number || customer.customer_number,
+        city: (customer) => customer.city || customer.address,
+        status: customerStatus,
+        created: (customer) => customer.created_at,
+      }),
+    [customers, sort]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -112,6 +151,71 @@ export default function CustomersPage() {
     setQ(searchInput.trim());
   }
 
+  function resetFilters() {
+    setSearchInput("");
+    setQ("");
+    setActive("");
+    setPage(1);
+  }
+
+  async function fetchFilteredCustomers() {
+    const allRows: CustomerItem[] = [];
+    let nextPage = 1;
+    let totalPages = 1;
+
+    do {
+      const params = new URLSearchParams();
+      params.set("page", String(nextPage));
+      params.set("per_page", "100");
+      if (active) params.set("active", active);
+      if (q) params.set("q", q);
+
+      const res = await apiGetWithAuth<CustomersResponse>(
+        `/api/admin/customers?${params.toString()}`
+      );
+
+      allRows.push(...(Array.isArray(res?.data) ? res.data : []));
+      totalPages = res?.pagination?.pages || 1;
+      nextPage += 1;
+    } while (nextPage <= totalPages);
+
+    return sortRows<CustomerItem, CustomerSortKey>(allRows, sort, {
+      name: (customer) => customer.full_name,
+      phone: (customer) => customer.phone,
+      email: (customer) => customer.email,
+      account: (customer) => customer.account_number || customer.customer_number,
+      city: (customer) => customer.city || customer.address,
+      status: customerStatus,
+      created: (customer) => customer.created_at,
+    });
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setPageError("");
+
+    try {
+      const rows = await fetchFilteredCustomers();
+      const columns: CsvColumn<CustomerItem>[] = [
+        { header: "Customer name", value: (customer) => customer.full_name },
+        { header: "Phone", value: (customer) => customer.phone },
+        { header: "Email", value: (customer) => customer.email },
+        { header: "Account number", value: (customer) => customer.account_number },
+        { header: "Customer number", value: (customer) => customer.customer_number },
+        { header: "Status", value: customerStatus },
+        { header: "City", value: (customer) => customer.city },
+        { header: "Address", value: (customer) => customer.address },
+        { header: "Created date", value: (customer) => formatDate(customer.created_at) },
+      ];
+
+      downloadCsv(rows, columns, reportFilename("customers-report"));
+    } catch (err: any) {
+      setPageError(err?.message || "Failed to export customers report.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <div className="mb-8">
@@ -157,17 +261,17 @@ export default function CustomersPage() {
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search name, phone, email, account number..."
-                  className="w-full sm:w-[320px] rounded-xl border border-black/10 px-4 py-3 outline-none focus:border-[var(--gold)]"
+                  className={`${adminInputClass} w-full sm:w-[320px]`}
                 />
                 <button
                   type="submit"
-                  className="rounded-xl bg-[var(--navy)] text-white px-5 py-3 font-extrabold"
+                  className={adminPrimaryButtonClass}
                 >
                   Search
                 </button>
               </form>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <label className="text-sm font-semibold text-black/70">Filter</label>
                 <select
                   value={active}
@@ -175,12 +279,23 @@ export default function CustomersPage() {
                     setPage(1);
                     setActive(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 px-4 py-3 bg-white outline-none focus:border-[var(--gold)]"
+                  className={adminInputClass}
                 >
                   <option value="">All</option>
                   <option value="true">Active</option>
                   <option value="false">Inactive</option>
                 </select>
+                <button type="button" onClick={resetFilters} className={adminSecondaryButtonClass}>
+                  Clear Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  disabled={exporting}
+                  className={adminGoldButtonClass}
+                >
+                  {exporting ? "Preparing..." : "Download CSV"}
+                </button>
               </div>
             </div>
           </div>
@@ -190,13 +305,27 @@ export default function CustomersPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-black/5 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-bold text-black/70">Name</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Phone</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Email</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Account No.</th>
-                    <th className="px-4 py-3 font-bold text-black/70">City</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Status</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Created</th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Name" sortKey="name" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Phone" sortKey="phone" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Email" sortKey="email" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Account No." sortKey="account" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="City" sortKey="city" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Status" sortKey="status" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Created" sortKey="created" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -207,7 +336,7 @@ export default function CustomersPage() {
                       </td>
                     </tr>
                   ) : (
-                    customers.map((customer) => (
+                    sortedCustomers.map((customer) => (
                       <tr key={customer.id} className="border-t border-black/5 align-top">                       
                         <td className="px-4 py-4">
                         <Link

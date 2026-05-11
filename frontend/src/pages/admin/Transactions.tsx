@@ -1,12 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiGetWithAuth } from "../../lib/api";
 import { adminLoginUrl } from "../../lib/adminAuth";
+import {
+  SortHeader,
+  adminGoldButtonClass,
+  adminInputClass,
+  adminPrimaryButtonClass,
+  adminSecondaryButtonClass,
+  downloadCsv,
+  nextSortState,
+  reportFilename,
+  sortRows,
+  type CsvColumn,
+  type SortState,
+} from "../../components/admin/TableTools";
 
 type TransactionItem = {
   id: number;
   customer_id: number | null;
   customer_name: string | null;
+  customer_phone?: string | null;
+  account_number?: string | null;
   package_id: number | null;
   package_name: string | null;
   amount: number | null;
@@ -19,6 +34,16 @@ type TransactionItem = {
   result_desc: string | null;
   created_at: string | null;
 };
+
+type TransactionSortKey =
+  | "reference"
+  | "customer"
+  | "package"
+  | "amount"
+  | "status"
+  | "type"
+  | "description"
+  | "created";
 
 type TransactionsResponse = {
   ok: boolean;
@@ -38,6 +63,15 @@ function formatDate(value: string | null) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString();
+}
+
+function primaryReference(item: TransactionItem) {
+  return (
+    item.mpesa_receipt ||
+    item.checkout_request_id ||
+    item.merchant_request_id ||
+    `TX-${item.id}`
+  );
 }
 
 function StatusPill({ value }: { value: string | null }) {
@@ -91,9 +125,29 @@ export default function TransactionsPage() {
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState<TransactionSortKey>>({
+    key: "created",
+    direction: "desc",
+  });
+  const [exporting, setExporting] = useState(false);
 
   const [pagination, setPagination] =
     useState<TransactionsResponse["pagination"] | null>(null);
+
+  const sortedItems = useMemo(
+    () =>
+      sortRows<TransactionItem, TransactionSortKey>(items, sort, {
+        reference: (item) => primaryReference(item),
+        customer: (item) => item.customer_name,
+        package: (item) => item.package_name,
+        amount: (item) => item.amount,
+        status: (item) => item.status,
+        type: (item) => item.type,
+        description: (item) => item.result_desc,
+        created: (item) => item.created_at,
+      }),
+    [items, sort]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -146,6 +200,75 @@ export default function TransactionsPage() {
     setQ(searchInput.trim());
   }
 
+  function resetFilters() {
+    setSearchInput("");
+    setQ("");
+    setStatus("");
+    setTxType("");
+    setPage(1);
+  }
+
+  async function fetchFilteredTransactions() {
+    const allRows: TransactionItem[] = [];
+    let nextPage = 1;
+    let totalPages = 1;
+
+    do {
+      const params = new URLSearchParams();
+      params.set("page", String(nextPage));
+      params.set("per_page", "100");
+      if (status) params.set("status", status);
+      if (txType) params.set("type", txType);
+      if (q) params.set("q", q);
+
+      const res = await apiGetWithAuth<TransactionsResponse>(
+        `/api/admin/transactions?${params.toString()}`
+      );
+
+      allRows.push(...(Array.isArray(res?.data) ? res.data : []));
+      totalPages = res?.pagination?.pages || 1;
+      nextPage += 1;
+    } while (nextPage <= totalPages);
+
+    return sortRows<TransactionItem, TransactionSortKey>(allRows, sort, {
+      reference: (item) => primaryReference(item),
+      customer: (item) => item.customer_name,
+      package: (item) => item.package_name,
+      amount: (item) => item.amount,
+      status: (item) => item.status,
+      type: (item) => item.type,
+      description: (item) => item.result_desc,
+      created: (item) => item.created_at,
+    });
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setPageError("");
+
+    try {
+      const rows = await fetchFilteredTransactions();
+      const columns: CsvColumn<TransactionItem>[] = [
+        { header: "Customer name", value: (item) => item.customer_name },
+        { header: "Phone", value: (item) => item.customer_phone },
+        { header: "Package", value: (item) => item.package_name },
+        { header: "Account number / username", value: (item) => item.account_number },
+        { header: "Status", value: (item) => item.status },
+        { header: "Amount paid", value: (item) => item.amount },
+        { header: "Payment date", value: (item) => formatDate(item.created_at) },
+        { header: "Connection type", value: (item) => item.type },
+        { header: "Receipt / reference", value: (item) => primaryReference(item) },
+        { header: "Description", value: (item) => item.result_desc },
+      ];
+
+      downloadCsv(rows, columns, reportFilename("payments-report"));
+    } catch (err: any) {
+      setPageError(err?.message || "Failed to export payments report.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <div className="mb-8">
@@ -196,11 +319,11 @@ export default function TransactionsPage() {
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search receipt, checkout ID, description, customer..."
-                  className="w-full sm:w-[360px] rounded-xl border border-black/10 px-4 py-3 outline-none focus:border-[var(--gold)]"
+                  className={`${adminInputClass} w-full sm:w-[360px]`}
                 />
                 <button
                   type="submit"
-                  className="rounded-xl bg-[var(--navy)] text-white px-5 py-3 font-extrabold"
+                  className={adminPrimaryButtonClass}
                 >
                   Search
                 </button>
@@ -213,7 +336,7 @@ export default function TransactionsPage() {
                     setPage(1);
                     setStatus(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 px-4 py-3 bg-white outline-none focus:border-[var(--gold)]"
+                  className={adminInputClass}
                 >
                   <option value="">All Statuses</option>
                   <option value="pending">Pending</option>
@@ -230,12 +353,23 @@ export default function TransactionsPage() {
                     setPage(1);
                     setTxType(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 px-4 py-3 bg-white outline-none focus:border-[var(--gold)]"
+                  className={adminInputClass}
                 >
                   <option value="">All Types</option>
                   <option value="manual">Manual</option>
                   <option value="mpesa">M-Pesa</option>
                 </select>
+                <button type="button" onClick={resetFilters} className={adminSecondaryButtonClass}>
+                  Clear Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  disabled={exporting}
+                  className={adminGoldButtonClass}
+                >
+                  {exporting ? "Preparing..." : "Export Report"}
+                </button>
               </div>
             </div>
           </div>
@@ -245,29 +379,29 @@ export default function TransactionsPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-black/5 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Receipt / Ref
+                    <th className="px-4 py-3">
+                      <SortHeader label="Receipt / Ref" sortKey="reference" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Customer
+                    <th className="px-4 py-3">
+                      <SortHeader label="Customer" sortKey="customer" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Package
+                    <th className="px-4 py-3">
+                      <SortHeader label="Package" sortKey="package" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Amount
+                    <th className="px-4 py-3">
+                      <SortHeader label="Amount" sortKey="amount" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Status
+                    <th className="px-4 py-3">
+                      <SortHeader label="Status" sortKey="status" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Type
+                    <th className="px-4 py-3">
+                      <SortHeader label="Type" sortKey="type" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Description
+                    <th className="px-4 py-3">
+                      <SortHeader label="Description" sortKey="description" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
-                    <th className="px-4 py-3 font-bold text-black/70">
-                      Created
+                    <th className="px-4 py-3">
+                      <SortHeader label="Created" sortKey="created" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
                     </th>
                   </tr>
                 </thead>
@@ -282,13 +416,8 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   ) : (
-                    items.map((item) => {
-                      const primaryRef =
-                        item.mpesa_receipt ||
-                        item.checkout_request_id ||
-                        item.merchant_request_id ||
-                        `TX-${item.id}`;
-
+                    sortedItems.map((item) => {
+                      const primaryRef = primaryReference(item);
                       return (
                         <tr
                           key={item.id}

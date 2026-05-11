@@ -1,11 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGetWithAuth } from "../../lib/api";
 import { adminLoginUrl } from "../../lib/adminAuth";
+import {
+  SortHeader,
+  adminGoldButtonClass,
+  adminInputClass,
+  adminPrimaryButtonClass,
+  adminSecondaryButtonClass,
+  downloadCsv,
+  nextSortState,
+  reportFilename,
+  sortRows,
+  type CsvColumn,
+  type SortState,
+} from "../../components/admin/TableTools";
 
 type SubscriptionItem = {
   id: number;
   customer_id: number | null;
   customer_name: string | null;
+  customer_phone?: string | null;
   account_number?: string | null;
   package_id: number | null;
   package_name: string | null;
@@ -20,6 +34,16 @@ type SubscriptionItem = {
   created_at: string | null;
   updated_at: string | null;
 };
+
+type SubscriptionSortKey =
+  | "customer"
+  | "account"
+  | "package"
+  | "service"
+  | "status"
+  | "location"
+  | "expiry"
+  | "created";
 
 type SubscriptionsResponse = {
   ok: boolean;
@@ -105,8 +129,28 @@ export default function SubscriptionsPage() {
   const [searchInput, setSearchInput] = useState("");
 
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState<SubscriptionSortKey>>({
+    key: "expiry",
+    direction: "asc",
+  });
+  const [exporting, setExporting] = useState(false);
   const [pagination, setPagination] =
     useState<SubscriptionsResponse["pagination"] | null>(null);
+
+  const sortedItems = useMemo(
+    () =>
+      sortRows<SubscriptionItem, SubscriptionSortKey>(items, sort, {
+        customer: (item) => item.customer_name,
+        account: (item) => item.account_number,
+        package: (item) => item.package_name,
+        service: (item) => item.service_type,
+        status: (item) => item.status,
+        location: (item) => item.location_name,
+        expiry: (item) => getExpiryOrDueDate(item),
+        created: (item) => item.created_at,
+      }),
+    [items, sort]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -171,6 +215,66 @@ export default function SubscriptionsPage() {
     setPage(1);
   }
 
+  async function fetchFilteredSubscriptions() {
+    const allRows: SubscriptionItem[] = [];
+    let nextPage = 1;
+    let totalPages = 1;
+
+    do {
+      const params = new URLSearchParams();
+      params.set("page", String(nextPage));
+      params.set("per_page", "100");
+      if (status) params.set("status", status);
+      if (serviceType) params.set("service_type", serviceType);
+      if (q) params.set("q", q);
+
+      const res = await apiGetWithAuth<SubscriptionsResponse>(
+        `/api/admin/subscriptions?${params.toString()}`
+      );
+
+      allRows.push(...(Array.isArray(res?.data) ? res.data : []));
+      totalPages = res?.pagination?.pages || 1;
+      nextPage += 1;
+    } while (nextPage <= totalPages);
+
+    return sortRows<SubscriptionItem, SubscriptionSortKey>(allRows, sort, {
+      customer: (item) => item.customer_name,
+      account: (item) => item.account_number,
+      package: (item) => item.package_name,
+      service: (item) => item.service_type,
+      status: (item) => item.status,
+      location: (item) => item.location_name,
+      expiry: (item) => getExpiryOrDueDate(item),
+      created: (item) => item.created_at,
+    });
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setPageError("");
+
+    try {
+      const rows = await fetchFilteredSubscriptions();
+      const columns: CsvColumn<SubscriptionItem>[] = [
+        { header: "Customer name", value: (item) => item.customer_name },
+        { header: "Phone", value: (item) => item.customer_phone },
+        { header: "Package", value: (item) => item.package_name },
+        { header: "Account number / username", value: (item) => item.account_number },
+        { header: "Status", value: (item) => item.status },
+        { header: "Expiry date", value: (item) => formatDate(getExpiryOrDueDate(item)) },
+        { header: "Connection type", value: (item) => item.service_type },
+        { header: "Location", value: (item) => item.location_name },
+        { header: "Created date", value: (item) => formatDate(item.created_at) },
+      ];
+
+      downloadCsv(rows, columns, reportFilename("subscriptions-report"));
+    } catch (err: any) {
+      setPageError(err?.message || "Failed to export subscriptions report.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <div className="mb-8">
@@ -221,11 +325,11 @@ export default function SubscriptionsPage() {
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search customer, account no., or package..."
-                  className="w-full rounded-xl border border-black/10 px-4 py-3 outline-none focus:border-[var(--gold)] sm:w-[340px]"
+                  className={`${adminInputClass} w-full sm:w-[340px]`}
                 />
                 <button
                   type="submit"
-                  className="rounded-xl bg-[var(--navy)] px-5 py-3 font-extrabold text-white"
+                  className={adminPrimaryButtonClass}
                 >
                   Search
                 </button>
@@ -238,7 +342,7 @@ export default function SubscriptionsPage() {
                     setPage(1);
                     setStatus(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 bg-white px-4 py-3 outline-none focus:border-[var(--gold)]"
+                  className={adminInputClass}
                 >
                   <option value="">All Statuses</option>
                   <option value="active">Active</option>
@@ -253,7 +357,7 @@ export default function SubscriptionsPage() {
                     setPage(1);
                     setServiceType(e.target.value);
                   }}
-                  className="rounded-xl border border-black/10 bg-white px-4 py-3 outline-none focus:border-[var(--gold)]"
+                  className={adminInputClass}
                 >
                   <option value="">All Service Types</option>
                   <option value="pppoe">PPPoE</option>
@@ -263,9 +367,18 @@ export default function SubscriptionsPage() {
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="rounded-xl border border-black/10 bg-white px-4 py-3 font-semibold text-black/75"
+                  className={adminSecondaryButtonClass}
                 >
-                  Reset
+                  Clear Filters
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  disabled={exporting}
+                  className={adminGoldButtonClass}
+                >
+                  {exporting ? "Preparing..." : "Download CSV"}
                 </button>
               </div>
             </div>
@@ -276,14 +389,30 @@ export default function SubscriptionsPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-black/5 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-bold text-black/70">Customer</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Account No.</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Package</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Service Type</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Status</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Location</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Expiry / Due</th>
-                    <th className="px-4 py-3 font-bold text-black/70">Created</th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Customer" sortKey="customer" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Account No." sortKey="account" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Package" sortKey="package" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Service Type" sortKey="service" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Status" sortKey="status" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Location" sortKey="location" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Expiry / Due" sortKey="expiry" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
+                    <th className="px-4 py-3">
+                      <SortHeader label="Created" sortKey="created" sort={sort} onSort={(key) => setSort((current) => nextSortState(current, key))} />
+                    </th>
                   </tr>
                 </thead>
 
@@ -295,7 +424,7 @@ export default function SubscriptionsPage() {
                       </td>
                     </tr>
                   ) : (
-                    items.map((item) => (
+                    sortedItems.map((item) => (
                       <tr key={item.id} className="align-top border-t border-black/5">
                         <td className="px-4 py-4">
                           <div className="font-bold text-black">
