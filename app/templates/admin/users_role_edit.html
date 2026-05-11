@@ -1,0 +1,131 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Edit User Role{% endblock %}
+{% block page_title %}Edit User Role{% endblock %}
+{% block page_subtitle %}
+Update operational access for an existing system user.
+{% endblock %}
+
+{% block content %}
+  <style>
+    .role-edit-wrap{
+      display:flex;
+      justify-content:flex-start;
+    }
+
+    .role-edit-card{
+      width:100%;
+      max-width:620px;
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:var(--shadow-sm);
+      overflow:hidden;
+    }
+
+    .role-edit-head{
+      padding:16px 18px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(0,0,0,.015), rgba(0,0,0,0));
+    }
+
+    .role-edit-head h3{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+
+    .role-edit-head p{
+      margin:8px 0 0 0;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.55;
+      word-break:break-word;
+    }
+
+    .role-edit-body{
+      padding:18px;
+    }
+
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+
+    .field label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.45px;
+    }
+
+    .field select{
+      width:100%;
+      padding:11px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      outline:none;
+      font:inherit;
+      transition:border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .field select:focus{
+      border-color:rgba(0,0,128,.28);
+      box-shadow:0 0 0 4px rgba(0,0,128,.06);
+    }
+
+    .help{
+      margin-top:2px;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.45;
+    }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:18px;
+    }
+  </style>
+
+  <div class="role-edit-wrap">
+    <form
+      method="post"
+      action="{{ url_for('admin.users_role_edit_post', user_id=user.id) }}"
+      class="role-edit-card"
+    >
+      <div class="role-edit-head">
+        <h3>{{ user.name or "Unnamed User" }}</h3>
+        <p>{{ user.email }} &middot; Account ID {{ user.id }}</p>
+      </div>
+
+      <div class="role-edit-body">
+        <div class="field">
+          <label for="role">Role</label>
+          <select id="role" name="role" required>
+            {% for role in roles %}
+              <option value="{{ role }}" {% if (user.role or '')|lower == role %}selected{% endif %}>
+                {% if role == "ops" %}Operations{% else %}{{ role|capitalize }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <div class="help">
+            Roles are limited to admin, operations, support, and finance.
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Save Role</button>
+          <a href="{{ url_for('admin.users_list') }}" class="btn">Cancel</a>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

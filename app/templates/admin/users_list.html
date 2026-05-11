@@ -179,6 +179,9 @@ Manage internal admin, finance, operations, and support accounts.
     }
 
     .btn-xs{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
       padding:7px 10px;
       border-radius:10px;
       font-size:12px;
@@ -327,23 +330,29 @@ Manage internal admin, finance, operations, and support accounts.
 
                   <td>
                     <div class="actions">
-                      {% if u.is_superadmin %}
-                        <span class="muted-sm">Protected</span>
-                      {% elif is_me %}
+                      {% if is_me %}
                         <span class="muted-sm">Current account</span>
                       {% else %}
-                        <form
-                          method="post"
-                          action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
-                          onsubmit="return confirm('Are you sure you want to {% if u.is_active %}disable{% else %}enable{% endif %} this user?');"
-                          style="margin:0;"
-                        >
-                          {% if u.is_active %}
-                            <button type="submit" class="btn-xs btn-xs-danger">Disable</button>
-                          {% else %}
-                            <button type="submit" class="btn-xs btn-xs-success">Enable</button>
-                          {% endif %}
-                        </form>
+                        <a
+                          class="btn-xs"
+                          href="{{ url_for('admin.users_role_edit_get', user_id=u.id) }}"
+                        >Edit Role</a>
+                        {% if u.is_superadmin %}
+                          <span class="muted-sm">Disable protected</span>
+                        {% else %}
+                          <form
+                            method="post"
+                            action="{{ url_for('admin.users_toggle', user_id=u.id) }}"
+                            onsubmit="return confirm('Are you sure you want to {% if u.is_active %}disable{% else %}enable{% endif %} this user?');"
+                            style="margin:0;"
+                          >
+                            {% if u.is_active %}
+                              <button type="submit" class="btn-xs btn-xs-danger">Disable</button>
+                            {% else %}
+                              <button type="submit" class="btn-xs btn-xs-success">Enable</button>
+                            {% endif %}
+                          </form>
+                        {% endif %}
                       {% endif %}
                     </div>
                   </td>

@@ -63,6 +63,8 @@ from app.models import CustomerLocation
 admin = Blueprint("admin", __name__, template_folder="templates")
 
 NAIROBI = ZoneInfo("Africa/Nairobi")
+ADMIN_USER_ROLES = ("admin", "ops", "support", "finance")
+ADMIN_USER_ROLE_SET = set(ADMIN_USER_ROLES)
 
 
 # =========================================================
@@ -2579,13 +2581,11 @@ def users_new_post():
     role = (request.form.get("role") or "").strip().lower()
     password = (request.form.get("password") or "").strip()
 
-    allowed_roles = {"admin", "finance", "ops", "support"}
-
     if not email or "@" not in email:
         flash("Valid email is required.", "error")
         return redirect(url_for("admin.users_new_get"))
 
-    if role not in allowed_roles:
+    if role not in ADMIN_USER_ROLE_SET:
         flash("Invalid role selected.", "error")
         return redirect(url_for("admin.users_new_get"))
 
@@ -2642,6 +2642,67 @@ def users_new_post():
         db.session.rollback()
         current_app.logger.exception("Failed to create system user")
         flash("Failed to create user. Please try again.", "error")
+
+    return redirect(url_for("admin.users_list"))
+
+
+@admin.get("/users/<int:user_id>/role")
+@login_required
+@roles_required("admin")
+def users_role_edit_get(user_id: int):
+    user = AdminUser.query.get_or_404(user_id)
+
+    if user_id == getattr(current_user, "id", None):
+        flash("You cannot change your own role.", "warning")
+        return redirect(url_for("admin.users_list"))
+
+    return render_template(
+        "admin/users_role_edit.html",
+        user=user,
+        roles=ADMIN_USER_ROLES,
+    )
+
+
+@admin.post("/users/<int:user_id>/role")
+@login_required
+@roles_required("admin")
+def users_role_edit_post(user_id: int):
+    user = AdminUser.query.get_or_404(user_id)
+    new_role = (request.form.get("role") or "").strip().lower()
+    old_role = (user.role or "").strip().lower()
+
+    if user_id == getattr(current_user, "id", None):
+        flash("You cannot change your own role.", "warning")
+        return redirect(url_for("admin.users_list"))
+
+    if new_role not in ADMIN_USER_ROLE_SET:
+        flash("Invalid role selected.", "error")
+        return redirect(url_for("admin.users_role_edit_get", user_id=user.id))
+
+    if old_role == new_role:
+        flash("User role is already set to that value.", "warning")
+        return redirect(url_for("admin.users_role_edit_get", user_id=user.id))
+
+    user.role = new_role
+
+    try:
+        db.session.commit()
+
+        audit(
+            "system_user_role_updated",
+            {
+                "user_id": user.id,
+                "old_role": old_role,
+                "new_role": new_role,
+                "changed_by": getattr(current_user, "id", None),
+            },
+        )
+
+        flash("User role updated successfully.", "success")
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed to update system user role")
+        flash("Failed to update user role. Please try again.", "error")
 
     return redirect(url_for("admin.users_list"))
 
