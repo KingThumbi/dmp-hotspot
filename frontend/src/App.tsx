@@ -13,6 +13,7 @@ import TermsPage from "./pages/Terms";
 import AcceptableUsePage from "./pages/AcceptableUse";
 import RefundPolicyPage from "./pages/RefundPolicy";
 import ServiceLevelAgreementPage from "./pages/ServiceLevelAgreement";
+import ShopPage from "./pages/Shop";
 import SupportPage from "./pages/Support";
 import DataDeletion from "./pages/DataDeletion";
 
@@ -45,7 +46,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/packages" element={<Packages />} />
           <Route path="/coverage" element={<CoveragePreview />} />
-          <Route path="/shop" element={<ComingSoonPage title="Shop" />} />
+          <Route path="/shop" element={<ShopPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/about" element={<ComingSoonPage title="About" />} />
           <Route path="/contact" element={<ContactPage />} />
