@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import Button3D from "../components/ui/Button3D";
 
 const WHATSAPP_NUMBER = "254780912362";
@@ -62,10 +63,10 @@ const products: Product[] = [
     specs: ["5x Gigabit ports", "SFP cage", "RouterOS L4"],
     availability: "Limited stock",
     priceKes: 11800,
-    badge: "ISP favorite",
+    badge: "Core routing",
     image: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=900&q=80",
     imageAlt: "Network equipment and patch cables in a server rack",
-    useCase: "Reliable gateway routing for managed sites and ISP edge installs.",
+    useCase: "Reliable gateway routing for managed sites and edge deployments.",
   },
   {
     id: 3,
@@ -94,7 +95,7 @@ const products: Product[] = [
   {
     id: 5,
     category: "Fibre Optic",
-    brand: "Dmpolin",
+    brand: "Generic",
     model: "FTTH Drop Cable Kit",
     specs: ["Single-mode fibre", "SC/APC connectors", "Indoor/outdoor run"],
     availability: "Pre-order",
@@ -155,7 +156,7 @@ const products: Product[] = [
   {
     id: 10,
     category: "Hotspot Accessories",
-    brand: "Dmpolin",
+    brand: "Generic",
     model: "Outdoor Hotspot Starter Kit",
     specs: ["Weather box", "PoE injector", "Mounting hardware"],
     availability: "Request Quote",
@@ -190,7 +191,24 @@ const products: Product[] = [
   },
 ];
 
-const brands = ["MikroTik", "Ubiquiti", "TP-Link", "Hikvision", "APC", "Tenda", "Mercusys", "Dmpolin"];
+const brands = ["MikroTik", "Ubiquiti", "TP-Link", "Hikvision", "APC", "Tenda", "Mercusys", "Generic"];
+
+const trustedBrands = [
+  { name: "MikroTik", mark: "MT", color: "#293f8f" },
+  { name: "Ubiquiti", mark: "UI", color: "#0559c9" },
+  { name: "Cisco", mark: "CS", color: "#1ba0d7" },
+  { name: "TP-Link", mark: "TP", color: "#00a3ad" },
+  { name: "D-Link", mark: "DL", color: "#f58220" },
+  { name: "Huawei", mark: "HW", color: "#cf0a2c" },
+  { name: "ZTE", mark: "ZT", color: "#005aaa" },
+  { name: "Hikvision", mark: "HK", color: "#d71920" },
+  { name: "Dahua", mark: "DH", color: "#005bac" },
+  { name: "Samsung", mark: "SG", color: "#1428a0" },
+  { name: "LG", mark: "LG", color: "#a50034" },
+  { name: "Dell", mark: "DE", color: "#0076ce" },
+  { name: "HP", mark: "HP", color: "#0096d6" },
+  { name: "Lenovo", mark: "LV", color: "#e2231a" },
+];
 
 const bundles: Bundle[] = [
   {
@@ -225,10 +243,10 @@ function priceLabel(product: Product) {
 
 function quoteLink(items: Product[] = []) {
   const message = items.length
-    ? `Hi Dmpolin Connect, I would like a quote for: ${items
+    ? `Hi, I would like a quote for: ${items
         .map((item) => `${item.brand} ${item.model}`)
         .join(", ")}.`
-    : "Hi Dmpolin Connect, I would like help choosing networking equipment from the online shop.";
+    : "Hi, I would like help choosing networking equipment from the online shop.";
 
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
 }
@@ -396,13 +414,13 @@ export default function ShopPage() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white/85">
               <span className="h-2 w-2 rounded-full bg-[var(--gold)]" />
-              Field-tested networking equipment for serious installs
+              Enterprise-grade networking equipment for professional installations
             </div>
             <h1 className="mt-6 text-4xl font-black leading-tight md:text-6xl">
-              Dmpolin Connect Shop
+              Networking Equipment Store
             </h1>
             <p className="mt-5 max-w-2xl text-lg font-medium leading-relaxed text-white/78">
-              Routers, MikroTik gateways, access points, fibre accessories, racks, cameras and power backup curated for homes, businesses, hotspots and ISP deployments.
+              Routers, MikroTik gateways, access points, fibre accessories, racks, cameras and power backup for homes, businesses, venues and managed networks.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button3D onClick={() => document.getElementById("shop-products")?.scrollIntoView({ behavior: "smooth" })}>
@@ -419,7 +437,7 @@ export default function ShopPage() {
             </div>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {["Same-day quote support", "Installer-grade stock", "Local setup advice"].map((item) => (
+              {["Fast quote turnaround", "Installer-grade stock", "Technical pre-sales guidance"].map((item) => (
                 <div key={item} className="rounded-2xl border border-white/12 bg-white/10 p-4 text-sm font-bold text-white/80">
                   {item}
                 </div>
@@ -474,7 +492,7 @@ export default function ShopPage() {
           <div>
             <h2 className="text-3xl font-black text-[var(--navy)]">Featured Brands</h2>
             <p className="mt-2 max-w-2xl text-black/60">
-              Practical, supportable brands selected for Kenyan homes, businesses and ISP-style networks.
+              Practical, supportable brands for residential, commercial and managed network environments.
             </p>
           </div>
         </div>
@@ -493,9 +511,9 @@ export default function ShopPage() {
       <section className="py-10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-3xl font-black text-[var(--navy)]">ISP Solution Bundles</h2>
+            <h2 className="text-3xl font-black text-[var(--navy)]">Solution Bundles</h2>
             <p className="mt-2 max-w-2xl text-black/60">
-              Start from a deployment scenario and ask us to tailor equipment, quantities and installation support.
+              Start from a deployment scenario and request a tailored equipment list, quantities and installation support options.
             </p>
           </div>
           <a
@@ -743,7 +761,7 @@ export default function ShopPage() {
         {filteredProducts.length === 0 ? (
           <div className="mt-8 rounded-3xl border border-black/5 bg-white p-8 text-center shadow-lg">
             <div className="text-xl font-black text-[var(--navy)]">No products matched</div>
-            <p className="mt-2 text-black/60">Try clearing filters or ask us to source the item for you.</p>
+            <p className="mt-2 text-black/60">Try clearing filters or request sourcing for a specific item.</p>
           </div>
         ) : null}
       </section>
@@ -753,7 +771,7 @@ export default function ShopPage() {
           <div className="p-7 md:p-10">
             <h2 className="text-3xl font-black">Built for real deployments.</h2>
             <p className="mt-3 text-white/75">
-              Need a complete bill of materials for a home, office, hotspot, CCTV, or fibre project? Dmpolin can help you choose compatible gear before you buy.
+              Need a complete bill of materials for a home, office, hotspot, CCTV, or fibre project? Request a compatibility-focused equipment list before purchase.
             </p>
             <a
               href={quoteLink(quoteItems)}
@@ -775,6 +793,38 @@ export default function ShopPage() {
                 <p className="mt-2 text-sm leading-relaxed text-white/72">{desc}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="pb-16 pt-2">
+        <div className="rounded-[2rem] border border-black/5 bg-white/90 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.08)] md:p-7">
+          <div className="mx-auto max-w-3xl text-center">
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-black/35">
+              Trusted Brands
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-[var(--navy)] md:text-3xl">
+              Recognized manufacturers for professional networks
+            </h2>
+          </div>
+
+          <div className="-mx-5 mt-7 overflow-x-auto px-5 pb-2 md:mx-0 md:overflow-visible md:px-0 md:pb-0">
+            <div className="flex min-w-max gap-3 md:grid md:min-w-0 md:grid-cols-4 lg:grid-cols-7">
+              {trustedBrands.map((brand) => (
+                <div
+                  key={brand.name}
+                  style={{ "--brand-color": brand.color } as CSSProperties}
+                  className="group flex min-w-[150px] items-center gap-3 rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4 shadow-sm grayscale transition duration-300 hover:-translate-y-0.5 hover:border-[var(--gold)]/50 hover:bg-white hover:grayscale-0 hover:shadow-[0_16px_40px_rgba(15,23,42,0.10)] md:min-w-0"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-white text-xs font-black text-slate-400 opacity-55 transition group-hover:border-transparent group-hover:bg-[color:var(--brand-color)] group-hover:text-white group-hover:opacity-100">
+                    {brand.mark}
+                  </div>
+                  <div className="text-sm font-black text-slate-500 opacity-55 transition group-hover:text-[color:var(--brand-color)] group-hover:opacity-100">
+                    {brand.name}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
