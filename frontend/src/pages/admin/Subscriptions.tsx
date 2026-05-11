@@ -3,15 +3,18 @@ import { apiGetWithAuth } from "../../lib/api";
 import { adminLoginUrl } from "../../lib/adminAuth";
 import {
   SortHeader,
+  SummaryCard,
+  QuickFilterButton,
   adminGoldButtonClass,
   adminInputClass,
   adminPrimaryButtonClass,
   adminSecondaryButtonClass,
-  downloadCsv,
+  downloadCsvReport,
   nextSortState,
   reportFilename,
   sortRows,
   type CsvColumn,
+  type SummaryMetric,
   type SortState,
 } from "../../components/admin/TableTools";
 
@@ -21,8 +24,10 @@ type SubscriptionItem = {
   customer_name: string | null;
   customer_phone?: string | null;
   account_number?: string | null;
+  username?: string | null;
   package_id: number | null;
   package_name: string | null;
+  package_price_kes?: number | null;
   location_id: number | null;
   location_name: string | null;
   status: string | null;
@@ -44,6 +49,8 @@ type SubscriptionSortKey =
   | "location"
   | "expiry"
   | "created";
+
+type ExpiryWindow = "" | "two_days";
 
 type SubscriptionsResponse = {
   ok: boolean;
@@ -67,6 +74,50 @@ function formatDate(value: string | null) {
 
 function getExpiryOrDueDate(item: SubscriptionItem) {
   return item.expires_at || item.next_due_date || item.ends_at || null;
+}
+
+function money(value: number) {
+  return `KES ${value.toLocaleString()}`;
+}
+
+function expiryWindowRange(window: ExpiryWindow) {
+  if (!window) return {};
+
+  const from = new Date();
+  const to = new Date();
+  from.setHours(0, 0, 0, 0);
+  to.setDate(to.getDate() + 2);
+  to.setHours(23, 59, 59, 999);
+
+  return {
+    expiresFrom: from.toISOString(),
+    expiresTo: to.toISOString(),
+  };
+}
+
+function subscriptionSummary(rows: SubscriptionItem[]) {
+  return {
+    total: rows.length,
+    active: rows.filter((item) => (item.status || "").toLowerCase() === "active").length,
+    inactive: rows.filter((item) =>
+      ["inactive", "suspended"].includes((item.status || "").toLowerCase())
+    ).length,
+    expired: rows.filter((item) => (item.status || "").toLowerCase() === "expired").length,
+    expectedRevenue: rows.reduce(
+      (sum, item) => sum + (Number(item.package_price_kes) || 0),
+      0
+    ),
+  };
+}
+
+function subscriptionSummaryMetrics(summary: ReturnType<typeof subscriptionSummary>): SummaryMetric[] {
+  return [
+    { label: "Total records", value: summary.total },
+    { label: "Active subscriptions", value: summary.active },
+    { label: "Inactive / suspended subscriptions", value: summary.inactive },
+    { label: "Expired subscriptions", value: summary.expired },
+    { label: "Expected subscription revenue", value: money(summary.expectedRevenue) },
+  ];
 }
 
 function StatusPill({ value }: { value: string | null }) {
@@ -125,6 +176,7 @@ export default function SubscriptionsPage() {
 
   const [status, setStatus] = useState("");
   const [serviceType, setServiceType] = useState("");
+  const [expiryWindow, setExpiryWindow] = useState<ExpiryWindow>("");
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
 
@@ -134,6 +186,8 @@ export default function SubscriptionsPage() {
     direction: "asc",
   });
   const [exporting, setExporting] = useState(false);
+  const [summaryRows, setSummaryRows] = useState<SubscriptionItem[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [pagination, setPagination] =
     useState<SubscriptionsResponse["pagination"] | null>(null);
 
@@ -152,6 +206,8 @@ export default function SubscriptionsPage() {
     [items, sort]
   );
 
+  const summary = useMemo(() => subscriptionSummary(summaryRows), [summaryRows]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -168,6 +224,9 @@ export default function SubscriptionsPage() {
         if (status) params.set("status", status);
         if (serviceType) params.set("service_type", serviceType);
         if (q) params.set("q", q);
+        const range = expiryWindowRange(expiryWindow);
+        if (range.expiresFrom) params.set("expires_from", range.expiresFrom);
+        if (range.expiresTo) params.set("expires_to", range.expiresTo);
 
         const res = await apiGetWithAuth<SubscriptionsResponse>(
           `/api/admin/subscriptions?${params.toString()}`
@@ -199,7 +258,30 @@ export default function SubscriptionsPage() {
     return () => {
       mounted = false;
     };
-  }, [page, q, serviceType, status]);
+  }, [page, q, serviceType, status, expiryWindow]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSummary() {
+      setSummaryLoading(true);
+
+      try {
+        const rows = await fetchFilteredSubscriptions();
+        if (mounted) setSummaryRows(rows);
+      } catch {
+        if (mounted) setSummaryRows([]);
+      } finally {
+        if (mounted) setSummaryLoading(false);
+      }
+    }
+
+    loadSummary();
+
+    return () => {
+      mounted = false;
+    };
+  }, [q, serviceType, status, expiryWindow, sort]);
 
   function applySearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -212,6 +294,7 @@ export default function SubscriptionsPage() {
     setQ("");
     setStatus("");
     setServiceType("");
+    setExpiryWindow("");
     setPage(1);
   }
 
@@ -227,6 +310,9 @@ export default function SubscriptionsPage() {
       if (status) params.set("status", status);
       if (serviceType) params.set("service_type", serviceType);
       if (q) params.set("q", q);
+      const range = expiryWindowRange(expiryWindow);
+      if (range.expiresFrom) params.set("expires_from", range.expiresFrom);
+      if (range.expiresTo) params.set("expires_to", range.expiresTo);
 
       const res = await apiGetWithAuth<SubscriptionsResponse>(
         `/api/admin/subscriptions?${params.toString()}`
@@ -259,15 +345,21 @@ export default function SubscriptionsPage() {
         { header: "Customer name", value: (item) => item.customer_name },
         { header: "Phone", value: (item) => item.customer_phone },
         { header: "Package", value: (item) => item.package_name },
-        { header: "Account number / username", value: (item) => item.account_number },
+        { header: "Account number / username", value: (item) => item.account_number || item.username },
         { header: "Status", value: (item) => item.status },
         { header: "Expiry date", value: (item) => formatDate(getExpiryOrDueDate(item)) },
+        { header: "Expected amount", value: (item) => item.package_price_kes },
         { header: "Connection type", value: (item) => item.service_type },
         { header: "Location", value: (item) => item.location_name },
         { header: "Created date", value: (item) => formatDate(item.created_at) },
       ];
 
-      downloadCsv(rows, columns, reportFilename("subscriptions-report"));
+      downloadCsvReport(
+        rows,
+        columns,
+        subscriptionSummaryMetrics(subscriptionSummary(rows)),
+        reportFilename("subscriptions-report")
+      );
     } catch (err: any) {
       setPageError(err?.message || "Failed to export subscriptions report.");
     } finally {
@@ -315,6 +407,18 @@ export default function SubscriptionsPage() {
 
       {!loading && !authError && !pageError && (
         <>
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <SummaryCard label="Total records" value={summaryLoading ? "..." : summary.total} />
+            <SummaryCard label="Active" value={summaryLoading ? "..." : summary.active} tone="green" />
+            <SummaryCard label="Inactive" value={summaryLoading ? "..." : summary.inactive} tone="gold" />
+            <SummaryCard label="Expired" value={summaryLoading ? "..." : summary.expired} tone="red" />
+            <SummaryCard
+              label="Expected revenue"
+              value={summaryLoading ? "..." : money(summary.expectedRevenue)}
+              tone="navy"
+            />
+          </div>
+
           <div className="mb-6 rounded-2xl border border-black/5 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <form
@@ -336,11 +440,62 @@ export default function SubscriptionsPage() {
               </form>
 
               <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+                <div className="flex flex-wrap gap-2">
+                  <QuickFilterButton
+                    active={expiryWindow === "two_days"}
+                    onClick={() => {
+                      setPage(1);
+                      setStatus("active");
+                      setExpiryWindow("two_days");
+                    }}
+                  >
+                    Expiring in 2 days
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={status === "expired" && !expiryWindow}
+                    onClick={() => {
+                      setPage(1);
+                      setStatus("expired");
+                      setExpiryWindow("");
+                    }}
+                  >
+                    Expired
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={status === "active" && !expiryWindow}
+                    onClick={() => {
+                      setPage(1);
+                      setStatus("active");
+                      setExpiryWindow("");
+                    }}
+                  >
+                    Active
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={serviceType === "hotspot"}
+                    onClick={() => {
+                      setPage(1);
+                      setServiceType("hotspot");
+                    }}
+                  >
+                    Hotspot
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={serviceType === "pppoe"}
+                    onClick={() => {
+                      setPage(1);
+                      setServiceType("pppoe");
+                    }}
+                  >
+                    PPPoE
+                  </QuickFilterButton>
+                </div>
                 <select
                   value={status}
                   onChange={(e) => {
                     setPage(1);
                     setStatus(e.target.value);
+                    setExpiryWindow("");
                   }}
                   className={adminInputClass}
                 >

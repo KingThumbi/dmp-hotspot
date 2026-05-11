@@ -4,15 +4,18 @@ import { adminLoginUrl } from "../../lib/adminAuth";
 import { Link } from "react-router-dom";
 import {
   SortHeader,
+  SummaryCard,
+  QuickFilterButton,
   adminGoldButtonClass,
   adminInputClass,
   adminPrimaryButtonClass,
   adminSecondaryButtonClass,
-  downloadCsv,
+  downloadCsvReport,
   nextSortState,
   reportFilename,
   sortRows,
   type CsvColumn,
+  type SummaryMetric,
   type SortState,
 } from "../../components/admin/TableTools";
 type CustomerItem = {
@@ -74,6 +77,22 @@ function customerStatus(customer: CustomerItem) {
   return customer.is_active ? "Active" : "Inactive";
 }
 
+function buildCustomerSummary(rows: CustomerItem[]) {
+  return {
+    total: rows.length,
+    activeCount: rows.filter((customer) => customer.is_active === true).length,
+    inactiveCount: rows.filter((customer) => customer.is_active === false).length,
+  };
+}
+
+function customerSummaryMetrics(summary: ReturnType<typeof buildCustomerSummary>): SummaryMetric[] {
+  return [
+    { label: "Total records", value: summary.total },
+    { label: "Active customers", value: summary.activeCount },
+    { label: "Inactive customers", value: summary.inactiveCount },
+  ];
+}
+
 export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
@@ -84,6 +103,8 @@ export default function CustomersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<CustomersResponse["pagination"] | null>(null);
+  const [summaryRows, setSummaryRows] = useState<CustomerItem[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [sort, setSort] = useState<SortState<CustomerSortKey>>({
     key: "created",
     direction: "desc",
@@ -103,6 +124,10 @@ export default function CustomersPage() {
       }),
     [customers, sort]
   );
+
+  const customerSummary = useMemo(() => {
+    return buildCustomerSummary(summaryRows);
+  }, [summaryRows]);
 
   useEffect(() => {
     let mounted = true;
@@ -144,6 +169,29 @@ export default function CustomersPage() {
       mounted = false;
     };
   }, [page, active, q]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSummary() {
+      setSummaryLoading(true);
+
+      try {
+        const rows = await fetchFilteredCustomers();
+        if (mounted) setSummaryRows(rows);
+      } catch {
+        if (mounted) setSummaryRows([]);
+      } finally {
+        if (mounted) setSummaryLoading(false);
+      }
+    }
+
+    loadSummary();
+
+    return () => {
+      mounted = false;
+    };
+  }, [active, q, sort]);
 
   function applySearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -208,7 +256,12 @@ export default function CustomersPage() {
         { header: "Created date", value: (customer) => formatDate(customer.created_at) },
       ];
 
-      downloadCsv(rows, columns, reportFilename("customers-report"));
+      downloadCsvReport(
+        rows,
+        columns,
+        customerSummaryMetrics(buildCustomerSummary(rows)),
+        reportFilename("customers-report")
+      );
     } catch (err: any) {
       setPageError(err?.message || "Failed to export customers report.");
     } finally {
@@ -254,6 +307,23 @@ export default function CustomersPage() {
 
       {!loading && !authError && !pageError && (
         <>
+          <div className="mb-6 grid gap-4 sm:grid-cols-3">
+            <SummaryCard
+              label="Total records"
+              value={summaryLoading ? "..." : customerSummary.total}
+            />
+            <SummaryCard
+              label="Active"
+              value={summaryLoading ? "..." : customerSummary.activeCount}
+              tone="green"
+            />
+            <SummaryCard
+              label="Inactive"
+              value={summaryLoading ? "..." : customerSummary.inactiveCount}
+              tone="red"
+            />
+          </div>
+
           <div className="rounded-2xl bg-white border border-black/5 p-5 shadow-sm mb-6">
             <div className="flex flex-col xl:flex-row gap-4 xl:items-end xl:justify-between">
               <form onSubmit={applySearch} className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
@@ -273,6 +343,26 @@ export default function CustomersPage() {
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <label className="text-sm font-semibold text-black/70">Filter</label>
+                <div className="flex flex-wrap gap-2">
+                  <QuickFilterButton
+                    active={active === "true"}
+                    onClick={() => {
+                      setPage(1);
+                      setActive("true");
+                    }}
+                  >
+                    Active
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={active === "false"}
+                    onClick={() => {
+                      setPage(1);
+                      setActive("false");
+                    }}
+                  >
+                    Inactive
+                  </QuickFilterButton>
+                </div>
                 <select
                   value={active}
                   onChange={(e) => {

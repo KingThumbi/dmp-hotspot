@@ -4,15 +4,18 @@ import { apiGetWithAuth } from "../../lib/api";
 import { adminLoginUrl } from "../../lib/adminAuth";
 import {
   SortHeader,
+  SummaryCard,
+  QuickFilterButton,
   adminGoldButtonClass,
   adminInputClass,
   adminPrimaryButtonClass,
   adminSecondaryButtonClass,
-  downloadCsv,
+  downloadCsvReport,
   nextSortState,
   reportFilename,
   sortRows,
   type CsvColumn,
+  type SummaryMetric,
   type SortState,
 } from "../../components/admin/TableTools";
 
@@ -45,6 +48,8 @@ type TransactionSortKey =
   | "description"
   | "created";
 
+type PaymentWindow = "" | "today" | "month";
+
 type TransactionsResponse = {
   ok: boolean;
   data: TransactionItem[];
@@ -72,6 +77,58 @@ function primaryReference(item: TransactionItem) {
     item.merchant_request_id ||
     `TX-${item.id}`
   );
+}
+
+function money(value: number) {
+  return `KES ${value.toLocaleString()}`;
+}
+
+function paymentWindowRange(window: PaymentWindow) {
+  if (!window) return {};
+
+  const from = new Date();
+  const to = new Date();
+
+  if (window === "today") {
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+  } else {
+    from.setDate(1);
+    from.setHours(0, 0, 0, 0);
+    to.setMonth(to.getMonth() + 1, 0);
+    to.setHours(23, 59, 59, 999);
+  }
+
+  return {
+    createdFrom: from.toISOString(),
+    createdTo: to.toISOString(),
+  };
+}
+
+function transactionSummary(rows: TransactionItem[]) {
+  const paidRows = rows.filter((item) =>
+    ["success", "completed"].includes((item.status || "").toLowerCase())
+  );
+
+  return {
+    total: rows.length,
+    paid: paidRows.length,
+    pending: rows.filter((item) => (item.status || "").toLowerCase() === "pending").length,
+    failed: rows.filter((item) =>
+      ["failed", "cancelled", "voided"].includes((item.status || "").toLowerCase())
+    ).length,
+    totalPaid: paidRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+  };
+}
+
+function transactionSummaryMetrics(summary: ReturnType<typeof transactionSummary>): SummaryMetric[] {
+  return [
+    { label: "Total records", value: summary.total },
+    { label: "Paid transactions", value: summary.paid },
+    { label: "Pending transactions", value: summary.pending },
+    { label: "Failed / cancelled / voided", value: summary.failed },
+    { label: "Total amount paid", value: money(summary.totalPaid) },
+  ];
 }
 
 function StatusPill({ value }: { value: string | null }) {
@@ -122,6 +179,7 @@ export default function TransactionsPage() {
 
   const [status, setStatus] = useState("");
   const [txType, setTxType] = useState("");
+  const [paymentWindow, setPaymentWindow] = useState<PaymentWindow>("");
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
@@ -130,6 +188,8 @@ export default function TransactionsPage() {
     direction: "desc",
   });
   const [exporting, setExporting] = useState(false);
+  const [summaryRows, setSummaryRows] = useState<TransactionItem[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const [pagination, setPagination] =
     useState<TransactionsResponse["pagination"] | null>(null);
@@ -149,6 +209,8 @@ export default function TransactionsPage() {
     [items, sort]
   );
 
+  const summary = useMemo(() => transactionSummary(summaryRows), [summaryRows]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -164,6 +226,9 @@ export default function TransactionsPage() {
         if (status) params.set("status", status);
         if (txType) params.set("type", txType);
         if (q) params.set("q", q);
+        const range = paymentWindowRange(paymentWindow);
+        if (range.createdFrom) params.set("created_from", range.createdFrom);
+        if (range.createdTo) params.set("created_to", range.createdTo);
 
         const res = await apiGetWithAuth<TransactionsResponse>(
           `/api/admin/transactions?${params.toString()}`
@@ -192,7 +257,30 @@ export default function TransactionsPage() {
     return () => {
       mounted = false;
     };
-  }, [page, status, txType, q]);
+  }, [page, status, txType, q, paymentWindow]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSummary() {
+      setSummaryLoading(true);
+
+      try {
+        const rows = await fetchFilteredTransactions();
+        if (mounted) setSummaryRows(rows);
+      } catch {
+        if (mounted) setSummaryRows([]);
+      } finally {
+        if (mounted) setSummaryLoading(false);
+      }
+    }
+
+    loadSummary();
+
+    return () => {
+      mounted = false;
+    };
+  }, [status, txType, q, paymentWindow, sort]);
 
   function applySearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -205,6 +293,7 @@ export default function TransactionsPage() {
     setQ("");
     setStatus("");
     setTxType("");
+    setPaymentWindow("");
     setPage(1);
   }
 
@@ -220,6 +309,9 @@ export default function TransactionsPage() {
       if (status) params.set("status", status);
       if (txType) params.set("type", txType);
       if (q) params.set("q", q);
+      const range = paymentWindowRange(paymentWindow);
+      if (range.createdFrom) params.set("created_from", range.createdFrom);
+      if (range.createdTo) params.set("created_to", range.createdTo);
 
       const res = await apiGetWithAuth<TransactionsResponse>(
         `/api/admin/transactions?${params.toString()}`
@@ -261,7 +353,12 @@ export default function TransactionsPage() {
         { header: "Description", value: (item) => item.result_desc },
       ];
 
-      downloadCsv(rows, columns, reportFilename("payments-report"));
+      downloadCsvReport(
+        rows,
+        columns,
+        transactionSummaryMetrics(transactionSummary(rows)),
+        reportFilename("payments-report")
+      );
     } catch (err: any) {
       setPageError(err?.message || "Failed to export payments report.");
     } finally {
@@ -309,6 +406,14 @@ export default function TransactionsPage() {
 
       {!loading && !authError && !pageError && (
         <>
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <SummaryCard label="Total records" value={summaryLoading ? "..." : summary.total} />
+            <SummaryCard label="Paid" value={summaryLoading ? "..." : summary.paid} tone="green" />
+            <SummaryCard label="Pending" value={summaryLoading ? "..." : summary.pending} tone="gold" />
+            <SummaryCard label="Failed" value={summaryLoading ? "..." : summary.failed} tone="red" />
+            <SummaryCard label="Total paid" value={summaryLoading ? "..." : money(summary.totalPaid)} tone="navy" />
+          </div>
+
           <div className="rounded-2xl bg-white border border-black/5 p-5 shadow-sm mb-6">
             <div className="flex flex-col xl:flex-row gap-4 xl:items-end xl:justify-between">
               <form
@@ -330,6 +435,26 @@ export default function TransactionsPage() {
               </form>
 
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <QuickFilterButton
+                    active={paymentWindow === "today"}
+                    onClick={() => {
+                      setPage(1);
+                      setPaymentWindow("today");
+                    }}
+                  >
+                    Today payments
+                  </QuickFilterButton>
+                  <QuickFilterButton
+                    active={paymentWindow === "month"}
+                    onClick={() => {
+                      setPage(1);
+                      setPaymentWindow("month");
+                    }}
+                  >
+                    This month payments
+                  </QuickFilterButton>
+                </div>
                 <select
                   value={status}
                   onChange={(e) => {

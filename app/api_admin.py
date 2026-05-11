@@ -100,6 +100,19 @@ def _parse_int(value: str | None, default: int) -> int:
         return default
 
 
+def _parse_datetime_arg(value: str | None):
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return None
+
+
 def _safe_count(query) -> int:
     try:
         return int(query.count())
@@ -366,8 +379,10 @@ def _serialize_subscription(subscription: Subscription) -> dict[str, Any]:
         "customer_name": _display_name(customer),
         "customer_phone": getattr(customer, "phone", None) if customer is not None else None,
         "account_number": getattr(customer, "account_number", None) if customer is not None else None,
+        "username": subscription.identity() if hasattr(subscription, "identity") else None,
         "package_id": getattr(subscription, "package_id", None) if hasattr(subscription, "package_id") else None,
         "package_name": package_name,
+        "package_price_kes": getattr(package, "price_kes", None) if package is not None else None,
         "location_id": location_id,
         "location_name": location_name,
         "status": getattr(subscription, "status", None) if hasattr(subscription, "status") else None,
@@ -1084,6 +1099,8 @@ def admin_subscriptions():
     status = (request.args.get("status") or "").strip().lower()
     service_type = (request.args.get("service_type") or "").strip().lower()
     q = (request.args.get("q") or "").strip()
+    expires_from = _parse_datetime_arg(request.args.get("expires_from"))
+    expires_to = _parse_datetime_arg(request.args.get("expires_to"))
 
     query = Subscription.query
 
@@ -1092,6 +1109,12 @@ def admin_subscriptions():
 
     if service_type and hasattr(Subscription, "service_type"):
         query = query.filter(Subscription.service_type == service_type)
+
+    if expires_from is not None and hasattr(Subscription, "expires_at"):
+        query = query.filter(Subscription.expires_at >= expires_from)
+
+    if expires_to is not None and hasattr(Subscription, "expires_at"):
+        query = query.filter(Subscription.expires_at <= expires_to)
 
     if q:
         filters = []
@@ -1161,6 +1184,8 @@ def admin_transactions():
     status = (request.args.get("status") or "").strip().lower()
     tx_type = (request.args.get("type") or "").strip().lower()
     q = (request.args.get("q") or "").strip()
+    created_from = _parse_datetime_arg(request.args.get("created_from"))
+    created_to = _parse_datetime_arg(request.args.get("created_to"))
 
     query = Transaction.query
 
@@ -1173,6 +1198,12 @@ def admin_transactions():
         query = query.filter(
             (Transaction.result_code.is_(None)) | (Transaction.result_code != "MANUAL")
         )
+
+    if created_from is not None:
+        query = query.filter(Transaction.created_at >= created_from)
+
+    if created_to is not None:
+        query = query.filter(Transaction.created_at <= created_to)
 
     if q:
         filters = [

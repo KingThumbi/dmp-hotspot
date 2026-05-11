@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 export type SortDirection = "asc" | "desc";
 export type SortState<Key extends string> = {
@@ -11,6 +11,11 @@ export type SortableValue = string | number | boolean | null | undefined;
 export type CsvColumn<Row> = {
   header: string;
   value: (row: Row) => SortableValue;
+};
+
+export type SummaryMetric = {
+  label: string;
+  value: SortableValue;
 };
 
 type SortHeaderProps<Key extends string> = {
@@ -121,6 +126,20 @@ export function buildCsv<Row>(rows: Row[], columns: CsvColumn<Row>[]): string {
   return [header, ...body].join("\r\n");
 }
 
+export function buildCsvWithSummary<Row>(
+  rows: Row[],
+  columns: CsvColumn<Row>[],
+  summary: SummaryMetric[]
+): string {
+  const summaryRows = [
+    ["Summary", ""].map(csvCell).join(","),
+    ...summary.map((item) => [item.label, item.value].map(csvCell).join(",")),
+    "",
+  ];
+
+  return [...summaryRows, buildCsv(rows, columns)].join("\r\n");
+}
+
 export function downloadCsv<Row>(
   rows: Row[],
   columns: CsvColumn<Row>[],
@@ -137,6 +156,80 @@ export function downloadCsv<Row>(
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadCsvReport<Row>(
+  rows: Row[],
+  columns: CsvColumn<Row>[],
+  summary: SummaryMetric[],
+  filename: string
+) {
+  const content = `\ufeff${buildCsvWithSummary(rows, columns, summary)}`;
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function SummaryCard({
+  label,
+  value,
+  tone = "navy",
+}: {
+  label: string;
+  value: SortableValue;
+  tone?: "navy" | "gold" | "green" | "red" | "slate";
+}) {
+  const toneClass =
+    tone === "gold"
+      ? "border-[var(--gold)]/40 bg-[var(--gold)]/15 text-black"
+      : tone === "green"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : tone === "red"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : tone === "slate"
+      ? "border-slate-200 bg-slate-50 text-slate-900"
+      : "border-[var(--navy)]/15 bg-white text-[var(--navy)]";
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <div className="text-xs font-bold uppercase tracking-wide opacity-65">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-black">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+export function QuickFilterButton({
+  children,
+  active,
+  onClick,
+}: {
+  children: ReactNode;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-full px-4 py-2 text-sm font-bold shadow-[0_4px_0_rgba(0,0,0,0.10)] transition hover:-translate-y-0.5 active:translate-y-0.5",
+        active
+          ? "bg-[var(--gold)] text-black"
+          : "border border-black/10 bg-white text-black/70 hover:border-[var(--gold)]",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
 }
 
 export function reportFilename(prefix: string): string {
